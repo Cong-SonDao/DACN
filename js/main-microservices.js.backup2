@@ -1,0 +1,839 @@
+// Modern main.js for Vy Food Microservices
+// Global state management
+let currentUser = null;
+let products = [];
+let cart = [];
+
+// Global error handler
+window.addEventListener('error', function(e) {
+    console.error('Global error:', e.error);
+});
+
+window.addEventListener('unhandledrejection', function(e) {
+    console.error('Unhandled promise rejection:', e.reason);
+});
+
+// Initialize app when DOM is loaded
+document.addEventListener('DOMContentLoaded', async function() {
+    console.log('DOM loaded, initializing app...');
+    try {
+        await initializeApp();
+    } catch (error) {
+        console.error('Failed to initialize app:', error);
+    }
+});
+
+async function initializeApp() {
+    try {
+        // Load products first (this is most important)
+        console.log('Loading products...');
+        await loadProducts();
+        console.log('Products loaded:', products.length);
+        
+        // Initialize UI
+        initializeEventListeners();
+        
+        // Check if user is logged in (this is optional)
+        if (vyFoodAPI && vyFoodAPI.isLoggedIn()) {
+            try {
+                currentUser = await vyFoodAPI.getCurrentUser();
+                updateUIForLoggedInUser();
+                await loadCartFromAPI();
+                console.log('User session loaded');
+            } catch (userError) {
+                console.warn('User session error (non-critical):', userError);
+                // Clear invalid token
+                vyFoodAPI.removeToken();
+            }
+        }
+        
+        console.log('App initialized successfully');
+        // App ready - no toast needed
+    } catch (error) {
+        console.error('Critical error initializing app:', error);
+        showToast({ type: 'error', title: 'Lỗi', message: 'Không thể tải dữ liệu ứng dụng. Vui lòng thử lại.' });
+        
+        // Try to at least show empty products container
+        try {
+            displayProducts([]);
+        } catch (displayError) {
+            console.error('Error displaying empty products:', displayError);
+        }
+    }
+}
+
+// Product Management
+async function loadProducts() {
+    try {
+        console.log('Checking vyFoodAPI availability...');
+        
+        let productsLoaded = false;
+        
+        // Try API first if available
+        if (typeof vyFoodAPI !== 'undefined') {
+            try {
+                console.log('vyFoodAPI available, calling getProducts...');
+                console.log('API base URL:', vyFoodAPI.baseURL);
+                
+                // Load all products by setting high limit
+                const response = await vyFoodAPI.getProducts({ limit: 100 });
+                console.log('API response received:', response);
+                
+                products = response.products || response || [];
+                
+                if (products && products.length > 0) {
+                    productsLoaded = true;
+                    console.log('✅ Products loaded from API:', products.length);
+                }
+            } catch (apiError) {
+                console.warn('⚠️ API failed:', apiError.message);
+            }
+        }
+        
+        // Fallback to localStorage or test data
+        if (!productsLoaded) {
+            console.log('🔄 Falling back to localStorage...');
+            const storedProducts = localStorage.getItem('products');
+            
+            if (storedProducts) {
+                try {
+                    products = JSON.parse(storedProducts);
+                    console.log('✅ Products loaded from localStorage:', products.length);
+                    productsLoaded = true;
+                } catch (parseError) {
+                    console.warn('⚠️ Error parsing stored products:', parseError);
+                }
+            }
+        }
+        
+        // Final fallback to empty array
+        if (!productsLoaded || !products || products.length === 0) {
+            console.log('📦 No products found, will use empty array');
+            products = [];
+        }
+        
+        // Set global references
+        window.products = products; // Expose globally for cart
+        localStorage.setItem('products', JSON.stringify(products));
+        
+        console.log('Products processed:', products.length, 'items');
+        console.log('Global window.products set:', !!window.products);
+        console.log('Products saved to localStorage');
+        
+        if (products.length === 0) {
+            console.warn('No products available to display');
+        } else {
+            console.log('Sample product:', products[0]);
+            console.log('Total products loaded:', products.length);
+        }
+        
+        try {
+            displayProducts(products);
+            console.log('Products displayed successfully');
+        } catch (displayError) {
+            console.error('Error displaying products:', displayError);
+        }
+        
+        // Hide pagination since we load all products
+        try {
+            const pageNav = document.querySelector('.page-nav');
+            if (pageNav) {
+                pageNav.style.display = 'none';
+            }
+        } catch (navError) {
+            console.warn('Could not hide pagination:', navError);
+        }
+        
+        // Success message only if we have products
+        if (products.length > 0) {
+            console.log(`✅ Successfully loaded ${products.length} products`);
+        }
+        
+    } catch (error) {
+        console.error('Error loading products:', error);
+        console.error('Error stack:', error.stack);
+        products = [];
+        window.products = [];
+        localStorage.setItem('products', JSON.stringify([]));
+        
+        // Show error message but try to display empty state
+        try {
+            displayProducts([]);
+        } catch (displayError) {
+            console.error('Error displaying empty products:', displayError);
+        }
+        
+        const errorMsg = error.message || 'Unknown error';
+        if (typeof showToast === 'function') {
+            showToast({ type: 'error', title: 'Lỗi', message: `Không thể tải sản phẩm: ${errorMsg}` });
+        }
+    }
+}
+
+function displayProducts(productList) {
+    console.log('Displaying products:', productList.length);
+    const productContainer = document.querySelector('.home-products');
+    if (!productContainer) {
+        console.error('Product container not found');
+        return;
+    }
+
+    if (!productList || productList.length === 0) {
+        productContainer.innerHTML = `
+            <div class="no-products">
+                <div class="no-products-message">
+                    <i class="fa-light fa-bowl-food"></i>
+                    <h3>Không có sản phẩm nào</h3>
+                    <p>Hiện tại chưa có sản phẩm nào để hiển thị.</p>
+                </div>
+            </div>
+        `;
+        return;
+    }
+
+    let productsHtml = '';
+    productList.forEach(product => {
+        // Add safety checks for product properties
+        const productId = product.id || product._id || ''; // Use id first, then _id as fallback
+        const productTitle = product.title || 'Không có tên';
+        const productImg = product.img || './assets/img/blank-image.png';
+        const productPrice = product.price || 0;
+        
+        productsHtml += `
+            <div class="col-product" onclick="detailProduct('${productId}')">
+                <article class="card-product">
+                    <div class="card-header">
+                        <a href="#" class="card-image-link">
+                            <img class="card-image" src="${productImg}" alt="${productTitle}" 
+                                 onerror="this.src='./assets/img/blank-image.png'">
+                        </a>
+                    </div>
+                    <div class="food-info">
+                        <div class="card-content">
+                            <div class="card-title">
+                                <a href="#" class="card-title-link">${productTitle}</a>
+                            </div>
+                        </div>
+                        <div class="card-footer">
+                            <div class="product-price">
+                                <span class="current-price">${vnd(productPrice)}</span>
+                            </div>
+                            <div class="product-buy">
+                                <button onclick="addToCartFromProduct('${productId}'); event.stopPropagation();" class="card-button">
+                                    <i class="fa-light fa-basket-shopping"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </article>
+            </div>
+        `;
+    });
+    productContainer.innerHTML = productsHtml;
+    console.log('Products HTML updated');
+}
+
+// Product Detail Modal
+async function detailProduct(productId) {
+    try {
+        let product;
+        
+        // Find product in local array first (by id or _id)
+        if (products.length > 0) {
+            product = products.find(p => p.id == productId || p._id === productId);
+        }
+        
+        if (!product) {
+            product = await vyFoodAPI.getProduct(productId);
+        }
+
+        if (!product) {
+            throw new Error('Không tìm thấy sản phẩm');
+        }
+
+        const modal = document.querySelector('.modal.product-detail');
+        const modalHtml = `
+            <div class="modal-header">
+                <img class="product-image" src="${product.img}" alt="${product.title}">
+            </div>
+            <div class="modal-body">
+                <h2 class="product-title">${product.title}</h2>
+                <div class="product-control">
+                    <div class="priceBox">
+                        <span class="current-price">${vnd(product.price)}</span>
+                    </div>
+                    <div class="buttons_added">
+                        <input class="minus is-form" type="button" value="-" onclick="decreasingNumber(this)">
+                        <input class="input-qty" max="100" min="1" name="" type="number" value="1">
+                        <input class="plus is-form" type="button" value="+" onclick="increasingNumber(this)">
+                    </div>
+                </div>
+                <p class="product-description">${product.desc || 'Không có mô tả'}</p>
+            </div>
+            <div class="notebox">
+                <p class="notebox-title">Ghi chú</p>
+                <textarea class="text-note" id="popup-detail-note" placeholder="Nhập thông tin cần lưu ý..."></textarea>
+            </div>
+            <div class="modal-footer">
+                <div class="price-total">
+                    <span class="thanhtien">Thành tiền</span>
+                    <span class="price">${vnd(product.price)}</span>
+                </div>
+                <div class="modal-footer-control">
+                    <button class="button-dathangngay" onclick="orderNow('${product.id || product._id}')">Đặt hàng ngay</button>
+                    <button class="button-dat" onclick="addToCartFromModal('${product.id || product._id}'); animationCart()">
+                        <i class="fa-light fa-basket-shopping"></i>
+                    </button>
+                </div>
+            </div>
+        `;
+        
+        document.querySelector('#product-detail-content').innerHTML = modalHtml;
+        modal.classList.add('open');
+        document.body.style.overflow = "hidden";
+        
+        // Update price when quantity changes
+        const tgbtns = document.querySelectorAll('.is-form');
+        const qty = document.querySelector('.product-control .input-qty');
+        const priceText = document.querySelector('.price');
+        
+        tgbtns.forEach(element => {
+            element.addEventListener('click', () => {
+                const price = product.price * parseInt(qty.value);
+                priceText.innerHTML = vnd(price);
+            });
+        });
+
+    } catch (error) {
+        console.error('Error loading product details:', error);
+        showToast({ type: 'error', title: 'Lỗi', message: 'Không thể tải chi tiết sản phẩm' });
+    }
+}
+
+// Cart Management
+async function loadCartFromAPI() {
+    if (!vyFoodAPI.isLoggedIn()) return;
+    
+    try {
+        console.log('🛒 Loading cart from API...');
+        const cartData = await vyFoodAPI.getCart();
+        console.log('🛒 Cart API response:', cartData);
+        
+        // Cart API returns { cart: [...] }
+        cart = cartData.cart || [];
+        console.log('🛒 Processed cart items:', cart);
+        
+        updateCartUI();
+    } catch (error) {
+        console.error('❌ Error loading cart:', error);
+        cart = [];
+    }
+}
+
+async function addToCartFromProduct(productId) {
+    console.log('=== addToCartFromProduct called ===');
+    console.log('Product ID received:', productId);
+    console.log('Product ID type:', typeof productId);
+    
+    // Find the actual product to verify ID
+    const product = products.find(p => p.id == productId || p._id === productId);
+    console.log('Found product:', product ? `${product.title} (id: ${product.id})` : 'NOT FOUND');
+    
+    console.log('User logged in:', vyFoodAPI.isLoggedIn());
+    console.log('User token:', vyFoodAPI.token);
+    
+    if (!vyFoodAPI.isLoggedIn()) {
+        console.log('❌ User not logged in, showing login required');
+        showLoginRequired();
+        return;
+    }
+
+    try {
+        console.log('📦 Adding product to cart via API...');
+        
+        // Add to cart with timeout
+        const addPromise = vyFoodAPI.addToCart(productId, 1);
+        const timeoutPromise = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('Timeout')), 8000)
+        );
+        
+        await Promise.race([addPromise, timeoutPromise]);
+        console.log('✅ Product added to cart successfully');
+        
+        // Update UI immediately without waiting for full cart reload
+        updateCartCount();
+        if (typeof updateCartBadge === 'function') {
+            updateCartBadge();
+        }
+        showToast({ type: 'success', title: 'Thành công', message: 'Đã thêm vào giỏ hàng' });
+        animationCart();
+        
+        // Load full cart in background
+        loadCartFromAPI().catch(err => {
+            console.warn('Background cart reload failed:', err);
+        });
+        
+    } catch (error) {
+        console.error('❌ Error adding to cart:', error);
+        const message = error.message === 'Timeout' ? 
+            'Thêm vào giỏ hàng bị chậm, vui lòng kiểm tra lại' : 
+            'Không thể thêm vào giỏ hàng: ' + error.message;
+        showToast({ type: 'error', title: 'Lỗi', message });
+    }
+}
+
+async function addToCartFromModal(productId) {
+    if (!vyFoodAPI.isLoggedIn()) {
+        showLoginRequired();
+        return;
+    }
+
+    try {
+        const qty = parseInt(document.querySelector('.product-control .input-qty').value);
+        const note = document.querySelector('#popup-detail-note').value;
+        
+        await vyFoodAPI.addToCart(productId, qty);
+        await loadCartFromAPI();
+        
+        closeModal();
+        showToast({ type: 'success', title: 'Thành công', message: `Đã thêm ${qty} sản phẩm vào giỏ hàng` });
+    } catch (error) {
+        console.error('Error adding to cart from modal:', error);
+        showToast({ type: 'error', title: 'Lỗi', message: 'Không thể thêm vào giỏ hàng' });
+    }
+}
+
+async function updateCartQuantity(productId, quantity) {
+    try {
+        if (quantity <= 0) {
+            await vyFoodAPI.removeFromCart(productId);
+        } else {
+            await vyFoodAPI.updateCartItem(productId, quantity);
+        }
+        await loadCartFromAPI();
+    } catch (error) {
+        console.error('Error updating cart quantity:', error);
+        showToast({ type: 'error', title: 'Lỗi', message: 'Không thể cập nhật giỏ hàng' });
+    }
+}
+
+async function removeFromCart(productId) {
+    try {
+        await vyFoodAPI.removeFromCart(productId);
+        await loadCartFromAPI();
+        showToast({ type: 'success', title: 'Thành công', message: 'Đã xóa khỏi giỏ hàng' });
+    } catch (error) {
+        console.error('Error removing from cart:', error);
+        showToast({ type: 'error', title: 'Lỗi', message: 'Không thể xóa khỏi giỏ hàng' });
+    }
+}
+
+function updateCartUI() {
+    console.log('🎨 Updating cart UI with items:', cart);
+    
+    const cartCount = document.querySelector('.count-product-cart');
+    // Cart items use 'soluong' field, not 'quantity'
+    const totalQuantity = cart.reduce((sum, item) => sum + (item.soluong || item.quantity || 0), 0);
+    
+    console.log('🛒 Total quantity:', totalQuantity);
+    
+    if (cartCount) {
+        cartCount.textContent = totalQuantity;
+        cartCount.style.display = totalQuantity > 0 ? 'block' : 'none';
+    }
+    
+    // Update cart modal if open
+    updateCartModal();
+}
+
+// Update cart modal display
+function updateCartModal() {
+    console.log('🛒 Updating cart modal with items:', cart);
+    
+    const cartListElement = document.querySelector('.cart-list');
+    const cartEmptyElement = document.querySelector('.gio-hang-trong');
+    const checkoutButton = document.querySelector('button.thanh-toan');
+    
+    if (!cartListElement) {
+        console.warn('Cart list element not found');
+        return;
+    }
+    
+    let cartHTML = '';
+    let totalAmount = 0;
+    
+    if (cart.length === 0) {
+        // Show empty cart
+        if (cartEmptyElement) cartEmptyElement.style.display = 'flex';
+        if (checkoutButton) checkoutButton.classList.add('disabled');
+        cartHTML = '';
+    } else {
+        // Hide empty cart message
+        if (cartEmptyElement) cartEmptyElement.style.display = 'none';
+        if (checkoutButton) checkoutButton.classList.remove('disabled');
+        
+        // Generate cart items
+        for (const item of cart) {
+            // Find product details
+            const product = products.find(p => p.id == item.id || p._id == item.id);
+            
+            if (product) {
+                const itemTotal = (product.price || 0) * (item.soluong || 1);
+                totalAmount += itemTotal;
+                
+                cartHTML += `<li class="cart-item" data-id="${item.id}">
+                    <div class="cart-item-info">
+                        <p class="cart-item-title">${product.title || 'Sản phẩm'}</p>
+                        <span class="cart-item-price price" data-price="${product.price || 0}">
+                            ${vnd(product.price || 0)}
+                        </span>
+                    </div>
+                    <p class="product-note">
+                        <i class="fa-light fa-pencil"></i>
+                        <span>${item.note || 'Không có ghi chú'}</span>
+                    </p>
+                    <div class="cart-item-control">
+                        <button class="cart-item-delete" onclick="removeFromCart('${item.id}')">Xóa</button>
+                        <div class="buttons_added">
+                            <input class="minus is-form" type="button" value="-" onclick="updateCartItemQuantity('${item.id}', ${(item.soluong || 1) - 1})">
+                            <input class="input-qty" max="100" min="1" type="number" value="${item.soluong || 1}" onchange="updateCartItemQuantity('${item.id}', this.value)">
+                            <input class="plus is-form" type="button" value="+" onclick="updateCartItemQuantity('${item.id}', ${(item.soluong || 1) + 1})">
+                        </div>
+                    </div>
+                </li>`;
+            } else {
+                console.warn('Product not found for cart item:', item);
+                cartHTML += `<li class="cart-item" data-id="${item.id}">
+                    <div class="cart-item-info">
+                        <p class="cart-item-title">Sản phẩm #${item.id}</p>
+                        <span class="cart-item-price price">50,000₫</span>
+                    </div>
+                    <p class="product-note">
+                        <i class="fa-light fa-pencil"></i>
+                        <span>Không có ghi chú</span>
+                    </p>
+                    <div class="cart-item-control">
+                        <button class="cart-item-delete" onclick="removeFromCart('${item.id}')">Xóa</button>
+                        <div class="buttons_added">
+                            <input class="minus is-form" type="button" value="-">
+                            <input class="input-qty" max="100" min="1" type="number" value="${item.soluong || 1}">
+                            <input class="plus is-form" type="button" value="+">
+                        </div>
+                    </div>
+                </li>`;
+            }
+        }
+    }
+    
+    cartListElement.innerHTML = cartHTML;
+    
+    // Update cart total
+    const cartTotalElement = document.querySelector('.cart-total-price');
+    if (cartTotalElement) {
+        cartTotalElement.textContent = vnd(totalAmount);
+    }
+    
+    console.log('✅ Cart modal updated with', cart.length, 'items, total:', vnd(totalAmount));
+}
+
+// Update cart item quantity
+async function updateCartItemQuantity(productId, newQuantity) {
+    const qty = parseInt(newQuantity);
+    
+    if (qty <= 0) {
+        await removeFromCart(productId);
+    } else {
+        await updateCartQuantity(productId, qty);
+    }
+}
+
+// Order Management
+async function orderNow(productId) {
+    if (!vyFoodAPI.isLoggedIn()) {
+        showLoginRequired();
+        return;
+    }
+
+    try {
+        // Add to cart first, then go to checkout
+        const qty = parseInt(document.querySelector('.product-control .input-qty').value);
+        await vyFoodAPI.addToCart(productId, qty);
+        await loadCartFromAPI();
+        
+        closeModal();
+        window.location.href = '#checkout'; // Or show checkout modal
+        showToast({ type: 'info', title: 'Chuyển hướng', message: 'Chuyển đến trang thanh toán' });
+    } catch (error) {
+        console.error('Error with order now:', error);
+        showToast({ type: 'error', title: 'Lỗi', message: 'Không thể đặt hàng' });
+    }
+}
+
+// Search and Filter
+async function searchProducts() {
+    const searchInput = document.querySelector('.form-search-input');
+    const categorySelect = document.querySelector('#advanced-search-category-select');
+    const minPrice = document.querySelector('#min-price');
+    const maxPrice = document.querySelector('#max-price');
+    
+    const query = searchInput ? searchInput.value.trim() : '';
+    const category = categorySelect ? categorySelect.value : '';
+    const minPriceValue = minPrice ? parseInt(minPrice.value) || 0 : 0;
+    const maxPriceValue = maxPrice ? parseInt(maxPrice.value) || 999999999 : 999999999;
+    
+    try {
+        let filteredProducts = [...products];
+        
+        // Filter by text search
+        if (query) {
+            const response = await vyFoodAPI.searchProducts(query, { limit: 100 });
+            filteredProducts = response.products || response;
+        }
+        
+        // Filter by category
+        if (category && category !== 'Tất cả') {
+            filteredProducts = filteredProducts.filter(product => 
+                product.category && product.category.toLowerCase().includes(category.toLowerCase())
+            );
+        }
+        
+        // Filter by price range
+        if (minPriceValue > 0 || maxPriceValue < 999999999) {
+            filteredProducts = filteredProducts.filter(product => 
+                product.price >= minPriceValue && product.price <= maxPriceValue
+            );
+        }
+        
+        displayProducts(filteredProducts);
+        
+        // Removed toast message as requested by user
+        // Just display the results without notification
+    } catch (error) {
+        console.error('Error searching products:', error);
+        showToast({ type: 'error', title: 'Lỗi', message: 'Không thể tìm kiếm sản phẩm' });
+    }
+}
+
+async function filterByCategory(category) {
+    try {
+        if (category === 'all' || !category) {
+            displayProducts(products);
+        } else {
+            // Use high limit to get all products in category
+            const response = await vyFoodAPI.getProducts({ category, limit: 100 });
+            const filteredProducts = response.products || response;
+            displayProducts(filteredProducts);
+            
+            console.log(`Filtered ${filteredProducts.length} products for category: ${category}`);
+        }
+    } catch (error) {
+        console.error('Error filtering by category:', error);
+        showToast({ type: 'error', title: 'Lỗi', message: 'Không thể lọc sản phẩm theo danh mục' });
+    }
+}
+
+// Hiển thị chuyên mục - wrapper cho filterByCategory
+async function showCategory(category) {
+    try {
+        // Hide other sections if they exist
+        const trangchu = document.getElementById('trangchu');
+        const accountUser = document.getElementById('account-user');
+        const orderHistory = document.getElementById('order-history');
+        
+        if (trangchu) trangchu.classList.remove('hide');
+        if (accountUser) accountUser.classList.remove('open');
+        if (orderHistory) orderHistory.classList.remove('open');
+        
+        // Filter products by category
+        await filterByCategory(category);
+        
+        // Scroll to products section
+        const homeTitle = document.getElementById("home-title");
+        if (homeTitle) {
+            homeTitle.scrollIntoView({ behavior: 'smooth' });
+        } else {
+            // Fallback: scroll to products container
+            const productsContainer = document.querySelector('.home-products');
+            if (productsContainer) {
+                productsContainer.scrollIntoView({ behavior: 'smooth' });
+            }
+        }
+        
+        // Removed toast message - category filtering silent
+    } catch (error) {
+        console.error('Error showing category:', error);
+        showToast({ type: 'error', title: 'Lỗi', message: 'Không thể hiển thị danh mục sản phẩm' });
+    }
+}
+
+// User Authentication
+function showLoginRequired() {
+    console.log('=== showLoginRequired called ===');
+    showToast({ type: 'warning', title: 'Yêu cầu đăng nhập', message: 'Vui lòng đăng nhập để tiếp tục' });
+    
+    // Show login form instead of signup
+    setTimeout(() => {
+        showLoginForm();
+    }, 500);
+}
+
+function updateUIForLoggedInUser() {
+    // Update header to show user info
+    const userControls = document.querySelector('.header-action');
+    if (userControls && currentUser) {
+        const userInfo = `
+            <div class="user-info">
+                <span>Xin chào, ${currentUser.fullName || currentUser.phone}!</span>
+                <button onclick="logout()" class="btn-logout">Đăng xuất</button>
+            </div>
+        `;
+        userControls.innerHTML = userInfo + userControls.innerHTML;
+    }
+}
+
+async function logout() {
+    try {
+        await vyFoodAPI.logout();
+        currentUser = null;
+        cart = [];
+        updateCartUI();
+        location.reload(); // Refresh the page to update UI
+    } catch (error) {
+        console.error('Error during logout:', error);
+    }
+}
+
+// Utility Functions
+function vnd(price) {
+    return new Intl.NumberFormat('vi-VN', { 
+        style: 'currency', 
+        currency: 'VND' 
+    }).format(price);
+}
+
+function increasingNumber(element) {
+    const qty = element.parentNode.querySelector('.input-qty');
+    if (parseInt(qty.value) < parseInt(qty.max)) {
+        qty.value = parseInt(qty.value) + 1;
+    }
+}
+
+function decreasingNumber(element) {
+    const qty = element.parentNode.querySelector('.input-qty');
+    if (parseInt(qty.value) > parseInt(qty.min)) {
+        qty.value = parseInt(qty.value) - 1;
+    }
+}
+
+function animationCart() {
+    // Add cart animation here
+    const cartButton = document.querySelector('.header-action .count-product-cart');
+    if (cartButton) {
+        cartButton.classList.add('shake');
+        setTimeout(() => {
+            cartButton.classList.remove('shake');
+        }, 500);
+    }
+}
+
+// Modal Management
+const body = document.querySelector("body");
+const modalContainer = document.querySelectorAll('.modal');
+const modalBox = document.querySelectorAll('.mdl-cnt');
+
+modalContainer.forEach(item => {
+    item.addEventListener('click', closeModal);
+});
+
+modalBox.forEach(item => {
+    item.addEventListener('click', function (event) {
+        event.stopPropagation();
+    });
+});
+
+function closeModal() {
+    modalContainer.forEach(item => {
+        item.classList.remove('open');
+    });
+    body.style.overflow = "auto";
+}
+
+// Event Listeners
+function initializeEventListeners() {
+    // Search functionality
+    const searchInput = document.querySelector('.form-search-input');
+    if (searchInput) {
+        searchInput.addEventListener('input', debounce(searchProducts, 500));
+    }
+    
+    // Category select dropdown
+    const categorySelect = document.querySelector('#advanced-search-category-select');
+    if (categorySelect) {
+        categorySelect.addEventListener('change', searchProducts);
+    }
+    
+    // Price range inputs
+    const minPrice = document.querySelector('#min-price');
+    const maxPrice = document.querySelector('#max-price');
+    if (minPrice) minPrice.addEventListener('change', searchProducts);
+    if (maxPrice) maxPrice.addEventListener('change', searchProducts);
+    
+    // Advanced search button
+    const searchBtn = document.querySelector('#advanced-search-price-btn');
+    if (searchBtn) {
+        searchBtn.addEventListener('click', function(e) {
+            e.preventDefault();
+            searchProducts();
+        });
+    }
+    
+    // Home link - show all products
+    const homeLinks = document.querySelectorAll('.menu-list-item a[href=""]');
+    homeLinks.forEach(link => {
+        link.addEventListener('click', function(e) {
+            e.preventDefault();
+            displayProducts(products);
+            
+            // Reset search inputs
+            if (searchInput) searchInput.value = '';
+            if (categorySelect) categorySelect.value = 'Tất cả';
+            if (minPrice) minPrice.value = '';
+            if (maxPrice) maxPrice.value = '';
+            
+            // Hide pagination
+            const pageNav = document.querySelector('.page-nav');
+            if (pageNav) pageNav.style.display = 'none';
+            
+            // Removed toast message for home page
+        });
+    });
+}
+
+// Utility function for debouncing
+function debounce(func, wait) {
+    let timeout;
+    return function executedFunction(...args) {
+        const later = () => {
+            clearTimeout(timeout);
+            func(...args);
+        };
+        clearTimeout(timeout);
+        timeout = setTimeout(later, wait);
+    };
+}
+
+// Error handling wrapper
+function handleAsyncError(asyncFn) {
+    return async function(...args) {
+        try {
+            return await asyncFn.apply(this, args);
+        } catch (error) {
+            console.error('Async operation failed:', error);
+            showToast({ 
+                type: 'error', 
+                title: 'Lỗi', 
+                message: 'Có lỗi xảy ra, vui lòng thử lại' 
+            });
+        }
+    };
+}

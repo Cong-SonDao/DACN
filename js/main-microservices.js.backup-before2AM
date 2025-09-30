@@ -1,0 +1,868 @@
+// Microservices-compatible initialization
+// This file handles user authentication UI and basic app initialization
+
+document.addEventListener('DOMContentLoaded', function() {
+    initializeAuthForms();
+    initializeModalHandlers();
+});
+
+function initializeAuthForms() {
+    console.log('Initializing auth forms...');
+    
+    // Login form handler
+    const loginForm = document.querySelector('.login-form');
+    if (loginForm) {
+        console.log('Login form found, adding event listener');
+        loginForm.addEventListener('submit', handleLogin);
+    } else {
+        console.warn('Login form not found');
+    }
+
+    // Register form handler
+    const registerForm = document.querySelector('.signup-form');
+    if (registerForm) {
+        console.log('Register form found, adding event listener');
+        registerForm.addEventListener('submit', handleRegister);
+    } else {
+        console.warn('Register form not found');
+    }
+
+    // Form switcher
+    const loginLink = document.querySelector('.login-link');
+    const signupLink = document.querySelector('.signup-link');
+    
+    if (loginLink) {
+        loginLink.addEventListener('click', showLoginForm);
+    }
+    
+    if (signupLink) {
+        signupLink.addEventListener('click', showRegisterForm);
+    }
+    
+    // Login/Signup buttons in header
+    const loginBtn = document.querySelector('#login');
+    const signupBtn = document.querySelector('#signup');
+    
+    if (loginBtn) {
+        console.log('Login button found, adding event listener');
+        loginBtn.addEventListener('click', showLoginForm);
+    } else {
+        console.warn('Login button not found');
+    }
+    
+    if (signupBtn) {
+        console.log('Signup button found, adding event listener');
+        signupBtn.addEventListener('click', showRegisterForm);
+    } else {
+        console.warn('Signup button not found');
+    }
+}
+
+async function handleLogin(event) {
+    event.preventDefault();
+    const formData = new FormData(event.target);
+    const phone = formData.get('phone');
+    const password = formData.get('password');
+
+    if (!phone || !password) {
+        showToast({ type: 'error', title: 'Lỗi', message: 'Vui lòng nhập đầy đủ thông tin' });
+        return;
+    }
+
+    try {
+        showLoading(true);
+        const response = await vyFoodAPI.login(phone, password);
+        
+        if (response.token) {
+            currentUser = response.user;
+            closeModal();
+            showToast({ type: 'success', title: 'Thành công', message: 'Đăng nhập thành công' });
+            
+            // Update UI immediately then reload
+            updateUIForLoggedInUser();
+            closeModal();
+            
+            // Reload page to update UI (shorter delay)
+            setTimeout(() => {
+                location.reload();
+            }, 500);
+        }
+    } catch (error) {
+        console.error('Login error:', error);
+        showToast({ type: 'error', title: 'Đăng nhập thất bại', message: error.message || 'Sai số điện thoại hoặc mật khẩu' });
+    } finally {
+        showLoading(false);
+    }
+}
+
+async function handleRegister(event) {
+    console.log('=== handleRegister called ===');
+    event.preventDefault();
+    const formData = new FormData(event.target);
+    
+    const userData = {
+        fullname: formData.get('fullname'), // API expects 'fullname' (lowercase)
+        phone: formData.get('phone'),
+        password: formData.get('password')
+    };
+
+    const confirmPassword = formData.get('password_confirmation'); // HTML uses 'password_confirmation'
+
+    console.log('📝 Form data collected:');
+    console.log('- Fullname:', userData.fullname);
+    console.log('- Phone:', userData.phone);
+    console.log('- Password length:', userData.password ? userData.password.length : 'null');
+    console.log('- Confirm password:', confirmPassword);
+
+    // Validation
+    if (!userData.fullname || !userData.phone || !userData.password) {
+        console.log('❌ Validation failed: Missing required fields');
+        showToast({ type: 'error', title: 'Lỗi', message: 'Vui lòng nhập đầy đủ thông tin' });
+        return;
+    }
+
+    if (userData.password !== confirmPassword) {
+        console.log('❌ Validation failed: Password confirmation mismatch');
+        showToast({ type: 'error', title: 'Lỗi', message: 'Mật khẩu xác nhận không khớp' });
+        return;
+    }
+
+    if (userData.password.length < 6) {
+        console.log('❌ Validation failed: Password too short');
+        showToast({ type: 'error', title: 'Lỗi', message: 'Mật khẩu phải có ít nhất 6 ký tự' });
+        return;
+    }
+
+    console.log('✅ Validation passed, calling API...');
+    
+    try {
+        showLoading(true);
+        console.log('📡 Calling vyFoodAPI.register with:', userData);
+        const result = await vyFoodAPI.register(userData);
+        console.log('✅ Registration successful:', result);
+        
+        showToast({ type: 'success', title: 'Thành công', message: 'Đăng ký thành công! Vui lòng đăng nhập' });
+        showLoginForm();
+    } catch (error) {
+        console.error('❌ Register error:', error);
+        console.log('Error details:', {
+            message: error.message,
+            status: error.status,
+            response: error.response
+        });
+        showToast({ type: 'error', title: 'Đăng ký thất bại', message: error.message || 'Có lỗi xảy ra khi đăng ký' });
+    } finally {
+        showLoading(false);
+    }
+}
+
+function showLoginForm() {
+    console.log('=== showLoginForm called ===');
+    const modal = document.querySelector('.modal.signup-login');
+    const modalContainer = document.querySelector('.modal-container');
+    const signupForm = document.querySelector('.form-content.sign-up');
+    
+    console.log('Modal found:', !!modal);
+    console.log('Modal container found:', !!modalContainer);
+    console.log('Signup form found:', !!signupForm);
+    
+    if (modal && modalContainer && signupForm) {
+        // FORCE CSS directly - bypass class system
+        console.log('Before: modalContainer.classList =', modalContainer.className);
+        modalContainer.classList.add('active');
+        
+        // FORCE inline style to ensure signup is hidden
+        signupForm.style.marginLeft = '-50%';
+        signupForm.style.transition = 'margin-left 0.3s ease';
+        
+        console.log('After: modalContainer.classList =', modalContainer.className);
+        console.log('Forced signup marginLeft:', signupForm.style.marginLeft);
+        
+        // Open modal
+        console.log('Before: modal.classList =', modal.className);
+        modal.classList.add('open');
+        console.log('After: modal.classList =', modal.className);
+        
+        document.body.style.overflow = "hidden";
+        console.log('✅ Login modal opened - FORCED LOGIN FORM with inline styles');
+        
+        // Debug: Check positions after forcing styles
+        setTimeout(() => {
+            const loginForm = document.querySelector('.form-content.login');
+            if (signupForm && loginForm) {
+                const signupRect = signupForm.getBoundingClientRect();
+                const loginRect = loginForm.getBoundingClientRect();
+                console.log('FORCED - Signup form position:', signupRect.left, signupRect.right);
+                console.log('FORCED - Login form position:', loginRect.left, loginRect.right);
+                
+                // Check which form is actually visible
+                const modalRect = modalContainer.getBoundingClientRect();
+                const signupVisible = signupRect.left >= modalRect.left && signupRect.left < modalRect.right;
+                const loginVisible = loginRect.left >= modalRect.left && loginRect.left < modalRect.right;
+                console.log('FORCED - Signup visible:', signupVisible);
+                console.log('FORCED - Login visible:', loginVisible);
+            }
+        }, 200);
+    } else {
+        console.error('❌ Modal, container, or signup form not found!');
+    }
+}
+
+function showRegisterForm() {
+    console.log('=== showRegisterForm called ===');
+    const modal = document.querySelector('.modal.signup-login');
+    const modalContainer = document.querySelector('.modal-container');
+    const signupForm = document.querySelector('.form-content.sign-up');
+    
+    console.log('Modal found:', !!modal);
+    console.log('Modal container found:', !!modalContainer);
+    console.log('Signup form found:', !!signupForm);
+    
+    if (modal && modalContainer && signupForm) {
+        // Show signup form (REMOVE active class and reset inline styles)
+        console.log('Before: modalContainer.classList =', modalContainer.className);
+        modalContainer.classList.remove('active');
+        
+        // RESET inline styles to show signup form
+        signupForm.style.marginLeft = '0';
+        signupForm.style.transition = 'margin-left 0.3s ease';
+        
+        console.log('After: modalContainer.classList =', modalContainer.className);
+        console.log('Reset signup marginLeft:', signupForm.style.marginLeft);
+        
+        // Open modal
+        console.log('Before: modal.classList =', modal.className);
+        modal.classList.add('open');
+        console.log('After: modal.classList =', modal.className);
+        
+        document.body.style.overflow = "hidden";
+        console.log('✅ Register modal opened - FORCED SIGNUP FORM with inline styles');
+        
+        // Debug: Check positions after resetting styles
+        setTimeout(() => {
+            const loginForm = document.querySelector('.form-content.login');
+            if (signupForm && loginForm) {
+                const signupRect = signupForm.getBoundingClientRect();
+                const loginRect = loginForm.getBoundingClientRect();
+                console.log('FORCED - Signup form position:', signupRect.left, signupRect.right);
+                console.log('FORCED - Login form position:', loginRect.left, loginRect.right);
+                
+                // Check which form is actually visible
+                const modalRect = modalContainer.getBoundingClientRect();
+                const signupVisible = signupRect.left >= modalRect.left && signupRect.left < modalRect.right;
+                const loginVisible = loginRect.left >= modalRect.left && loginRect.left < modalRect.right;
+                console.log('FORCED - Signup visible:', signupVisible);
+                console.log('FORCED - Login visible:', loginVisible);
+            }
+        }, 200);
+    } else {
+        console.error('❌ Modal, container, or signup form not found!');
+    }
+}
+
+function initializeModalHandlers() {
+    // Auth modal handler
+    const authTriggers = document.querySelectorAll('.auth-modal-trigger');
+    authTriggers.forEach(trigger => {
+        trigger.addEventListener('click', function(e) {
+            e.preventDefault();
+            if (!vyFoodAPI.isLoggedIn()) {
+                openAuthModal();
+            }
+        });
+    });
+
+    // Cart modal handler
+    const cartTrigger = document.querySelector('.cart-trigger');
+    if (cartTrigger) {
+        cartTrigger.addEventListener('click', function(e) {
+            e.preventDefault();
+            if (!vyFoodAPI.isLoggedIn()) {
+                openAuthModal();
+            } else {
+                openCartModal();
+            }
+        });
+    }
+}
+
+function openAuthModal() {
+    const authModal = document.querySelector('.modal.signup');
+    if (authModal) {
+        authModal.classList.add('open');
+        document.body.style.overflow = "hidden";
+    }
+}
+
+function openCartModal() {
+    const cartModal = document.querySelector('.modal.cart');
+    if (cartModal) {
+        cartModal.classList.add('open');
+        document.body.style.overflow = "hidden";
+        updateCartModal();
+    }
+}
+
+async function updateCartModal() {
+    console.log('🎨 Updating cart modal...');
+    
+    let cartItems = [];
+    let hasUser = false;
+    
+    // Check for user from API or localStorage
+    if (typeof api !== 'undefined' && api && api.getUserId) {
+        const userId = api.getUserId();
+        if (userId) {
+            hasUser = true;
+            console.log('🔑 User ID from API:', userId);
+        }
+    }
+    
+    // Fallback to localStorage user
+    if (!hasUser) {
+        const currentUser = JSON.parse(localStorage.getItem('currentuser') || '{}');
+        if (currentUser && currentUser.id) {
+            hasUser = true;
+            cartItems = currentUser.cart || [];
+            console.log('🔑 User from localStorage:', currentUser.fullname, 'Cart items:', cartItems.length);
+        }
+    }
+    
+    if (!hasUser) {
+        console.warn('⚠️ No user logged in, showing empty cart');
+        const cartContainer = document.querySelector('.cart-list');
+        const emptyCart = document.querySelector('.gio-hang-trong');
+        
+        if (cartContainer) cartContainer.style.display = 'none';
+        if (emptyCart) {
+            emptyCart.style.display = 'flex';
+            emptyCart.innerHTML = '<p>Vui lòng đăng nhập để xem giỏ hàng</p>';
+        }
+        return;
+    }
+
+    try {
+        console.log('📡 Calling getCart API...');
+        const cartData = await api.getCart();
+        console.log('🛒 Raw cart response:', cartData);
+        console.log('🛒 Cart data type:', typeof cartData);
+        
+        // Cart API returns { cart: [...] }
+        const cartItems = cartData && cartData.cart ? cartData.cart : [];
+        console.log('🛒 Extracted cart items:', cartItems);
+        console.log('🛒 Cart items length:', cartItems.length);
+        
+        const cartContainer = document.querySelector('.cart-list');
+        const emptyCart = document.querySelector('.gio-hang-trong');
+        
+        console.log('🎯 DOM elements found:', {
+            cartContainer: !!cartContainer,
+            emptyCart: !!emptyCart
+        });
+        
+        if (!cartContainer) {
+            console.error('❌ Cart container (.cart-list) not found');
+            return;
+        }
+
+        if (cartItems.length === 0) {
+            console.log('📭 Cart is empty, showing empty state');
+            cartContainer.style.display = 'none';
+            if (emptyCart) {
+                emptyCart.style.display = 'block';
+                emptyCart.innerHTML = `
+                    <div class="cart-empty">
+                        <img src="./assets/img/empty-order.jpg" alt="Empty cart">
+                        <p>Giỏ hàng của bạn đang trống</p>
+                    </div>
+                `;
+            }
+            updateCartTotal(0);
+            return;
+        } else {
+            console.log('🛍️ Cart has items, showing cart list');
+            if (emptyCart) emptyCart.style.display = 'none';
+            cartContainer.style.display = 'block';
+        }
+
+        let cartHtml = '';
+        let totalAmount = 0;
+
+        console.log('🔄 Processing cart items for display...');
+        console.log('🔑 Current userId from API:', api.getUserId());
+        console.log('🗃️ Global products available:', {
+            windowProducts: !!window.products,
+            globalProducts: typeof products !== 'undefined',
+            windowProductsLength: window.products ? window.products.length : 0,
+            globalProductsLength: typeof products !== 'undefined' ? products.length : 0
+        });
+        
+        // Get product details for each cart item
+        const itemsWithProducts = await Promise.all(cartItems.map(async (item) => {
+            let product = null;
+            
+            // Try global products array first (fastest)
+            if (window.products && Array.isArray(window.products)) {
+                product = window.products.find(p => p.id === item.id);
+            }
+            
+            // Try global products variable as fallback
+            if (!product && typeof products !== 'undefined' && Array.isArray(products)) {
+                product = products.find(p => p.id === item.id);
+            }
+            
+            // If still not found, try API call to get all products and filter
+            if (!product) {
+                try {
+                    console.log(`🔍 API fallback: searching for product ID ${item.id}`);
+                    const response = await fetch(`http://localhost:3002/api/products?limit=100`);
+                    if (response.ok) {
+                        const data = await response.json();
+                        const allProducts = data.products || data || [];
+                        product = allProducts.find(p => p.id === item.id);
+                        console.log(`📡 API search result for ${item.id}:`, product ? 'FOUND' : 'NOT FOUND');
+                    }
+                } catch (error) {
+                    console.error(`❌ API fallback failed for product ${item.id}:`, error);
+                }
+            }
+            
+            console.log(`� Final result for product ID ${item.id}:`, product ? product.title : 'NOT FOUND');
+            
+            return { ...item, product };
+        }));
+
+        console.log('📦 Items with product details:', itemsWithProducts);
+
+        for (const item of itemsWithProducts) {
+            console.log('📦 Processing cart item:', item);
+            
+            const product = item.product;
+            const productName = product ? product.title : `Sản phẩm #${item.id}`;
+            const productPrice = product ? product.price : 50000;
+            const productImage = product ? product.img : './assets/img/blank-image.png';
+            
+            const itemTotal = productPrice * item.soluong;
+            totalAmount += itemTotal;
+            
+            cartHtml += `
+                <div class="cart-item" data-item-id="${item.id}">
+                    <div class="cart-item-info">
+                        <div class="cart-item-details">
+                            <h4>${productName}</h4>
+                            <div class="cart-item-note">${item.note || 'Không có ghi chú'}</div>
+                            <div class="cart-item-price">${vnd(productPrice)}</div>
+                        </div>
+                        <div class="cart-item-total">${vnd(itemTotal)}</div>
+                    </div>
+                    
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <div class="cart-item-quantity">
+                            <button onclick="updateCartItemQuantity(${item.id}, ${item.soluong - 1})" class="quantity-btn minus">−</button>
+                            <span class="quantity">${item.soluong}</span>
+                            <button onclick="updateCartItemQuantity(${item.id}, ${item.soluong + 1})" class="quantity-btn plus">+</button>
+                        </div>
+                        
+                        <button onclick="removeCartItem(${item.id})" class="remove-item-btn">
+                            <i class="fa-light fa-trash"></i> Xóa
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+
+        console.log('🎨 Cart HTML generated:', cartHtml);
+        cartContainer.innerHTML = cartHtml;
+        updateCartTotal(totalAmount);
+
+    } catch (error) {
+        console.error('Error updating cart modal:', error);
+        showToast({ type: 'error', title: 'Lỗi', message: 'Không thể tải giỏ hàng' });
+    }
+}
+
+async function updateCartItemQuantity(itemId, newQuantity) {
+    if (newQuantity <= 0) {
+        await removeCartItem(itemId);
+        return;
+    }
+
+    try {
+        console.log('🔄 Updating cart item:', itemId, 'to quantity:', newQuantity);
+        
+        const userId = api.getUserId();
+        console.log('🔑 User ID:', userId);
+        
+        if (!userId) {
+            showToast({ type: 'error', title: 'Lỗi', message: 'Vui lòng đăng nhập để cập nhật giỏ hàng' });
+            return;
+        }
+
+        // Call Cart Service API to update quantity
+        const updateData = { soluong: newQuantity };
+        const url = `http://localhost:3003/api/cart/${userId}/items/${itemId}`;
+        
+        console.log('📡 Calling API:', url, 'with data:', updateData);
+        
+        const response = await fetch(url, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(updateData)
+        });
+
+        console.log('📥 Response status:', response.status);
+        const responseData = await response.text();
+        console.log('📥 Response data:', responseData);
+
+        if (response.ok) {
+            showToast({ type: 'success', title: 'Thành công', message: 'Đã cập nhật số lượng' });
+            await updateCartModal();
+        } else {
+            throw new Error(`API Error: ${response.status} - ${responseData}`);
+        }
+    } catch (error) {
+        console.error('Error updating cart item quantity:', error);
+        showToast({ type: 'error', title: 'Lỗi', message: `Không thể cập nhật số lượng: ${error.message}` });
+    }
+}
+
+async function removeCartItem(itemId) {
+    try {
+        console.log('🗑️ Removing cart item:', itemId);
+        
+        const userId = api.getUserId();
+        console.log('🔑 User ID:', userId);
+        
+        if (!userId) {
+            showToast({ type: 'error', title: 'Lỗi', message: 'Vui lòng đăng nhập để xóa sản phẩm' });
+            return;
+        }
+
+        // Call Cart Service API to remove item
+        const url = `http://localhost:3003/api/cart/${userId}/items/${itemId}`;
+        console.log('📡 Calling DELETE API:', url);
+        
+        const response = await fetch(url, {
+            method: 'DELETE'
+        });
+
+        console.log('📥 Response status:', response.status);
+        const responseData = await response.text();
+        console.log('📥 Response data:', responseData);
+
+        if (response.ok) {
+            showToast({ type: 'success', title: 'Thành công', message: 'Đã xóa sản phẩm khỏi giỏ hàng' });
+            await updateCartModal();
+        } else {
+            throw new Error(`API Error: ${response.status} - ${responseData}`);
+        }
+    } catch (error) {
+        console.error('Error removing cart item:', error);
+        showToast({ type: 'error', title: 'Lỗi', message: `Không thể xóa sản phẩm: ${error.message}` });
+    }
+}
+
+function updateCartTotal(total) {
+    const totalElements = document.querySelectorAll('.cart-total-price');
+    totalElements.forEach(element => {
+        element.textContent = vnd(total);
+    });
+}
+
+function showLoading(show) {
+    console.log('🔄 showLoading called:', show);
+    
+    // Handle loading elements
+    const loadingElements = document.querySelectorAll('.loading');
+    loadingElements.forEach(element => {
+        element.style.display = show ? 'block' : 'none';
+    });
+
+    // Handle form submit buttons (specifically auth buttons)
+    const authButtons = document.querySelectorAll('#login-button, #signup-button, .form-submit');
+    authButtons.forEach(button => {
+        if (show) {
+            // Store original text
+            if (!button.hasAttribute('data-original-text')) {
+                button.setAttribute('data-original-text', button.textContent);
+            }
+            button.disabled = true;
+            button.textContent = 'Đang xử lý...';
+            button.style.opacity = '0.7';
+            button.style.cursor = 'not-allowed';
+        } else {
+            // Restore original text
+            const originalText = button.getAttribute('data-original-text');
+            if (originalText) {
+                button.textContent = originalText;
+            }
+            button.disabled = false;
+            button.style.opacity = '1';
+            button.style.cursor = 'pointer';
+        }
+    });
+    
+    // Add visual loading indicator to modal if show
+    const modal = document.querySelector('.modal.signup-login');
+    if (modal) {
+        if (show) {
+            modal.style.pointerEvents = 'none';
+            modal.style.opacity = '0.8';
+        } else {
+            modal.style.pointerEvents = 'auto';
+            modal.style.opacity = '1';
+        }
+    }
+}
+
+// Cart management functions
+function openCart() {
+    showCart();
+    document.querySelector('.modal-cart').classList.add('open');
+    document.body.style.overflow = "hidden";
+}
+
+function closeCart() {
+    document.querySelector('.modal-cart').classList.remove('open');
+    document.body.style.overflow = "auto";
+}
+
+function showCart() {
+    // Load and display current cart
+    loadCartFromAPI();
+}
+
+function updateCartCount() {
+    // Quick update cart count without full reload
+    const cartCountElement = document.querySelector('.count-product-cart');
+    if (cartCountElement && cart) {
+        const totalItems = cart.reduce((sum, item) => sum + (item.soluong || item.quantity || 1), 0);
+        cartCountElement.textContent = totalItems;
+    }
+}
+
+// Utility functions for backward compatibility
+function openCity(evt, city) {
+    var i, tabcontent, tablinks;
+    tabcontent = document.getElementsByClassName("tabcontent");
+    for (i = 0; i < tabcontent.length; i++) {
+        tabcontent[i].style.display = "none";
+    }
+    tablinks = document.getElementsByClassName("tablinks");
+    for (i = 0; i < tablinks.length; i++) {
+        tablinks[i].className = tablinks[i].className.replace(" active", "");
+    }
+    document.getElementById(city).style.display = "block";
+    evt.currentTarget.className += " active";
+}
+
+// Show toast message helper
+function showToast(options) {
+    if (typeof toast !== 'undefined' && toast.showSuccessToast) {
+        // Use the existing toast system
+        switch(options.type) {
+            case 'success':
+                toast.showSuccessToast(options.title, options.message);
+                break;
+            case 'error':
+                toast.showErrorToast(options.title, options.message);
+                break;
+            case 'warning':
+                toast.showWarningToast(options.title, options.message);
+                break;
+            default:
+                toast.showInfoToast(options.title, options.message);
+        }
+        } else {
+        // Fallback to alert
+        alert(`${options.title}: ${options.message}`);
+    }
+}
+
+// Debug function - test cart directly
+async function debugCart() {
+    console.log('🔧 DEBUG: Testing cart functionality...');
+    
+    const userId = api.getUserId();
+    console.log('🔑 User ID:', userId);
+    
+    if (!userId) {
+        console.error('❌ No user logged in');
+        return;
+    }
+    
+    try {
+        // Test direct API call
+        const response = await fetch(`http://localhost:3003/api/cart/${userId}`);
+        const cartData = await response.json();
+        console.log('🛒 Direct API response:', cartData);
+        
+        // Test through api.js
+        const apiCartData = await api.getCart();
+        console.log('🛒 API.js response:', apiCartData);
+        
+        // Force update cart modal
+        await updateCartModal();
+        
+    } catch (error) {
+        console.error('❌ Debug error:', error);
+    }
+}
+
+// Make debugCart available globally
+window.debugCart = debugCart;
+
+// Payment function
+async function proceedToCheckout() {
+    console.log('🛒 Simple checkout process started...');
+    
+    try {
+        // Check cart items from localStorage
+        const currentUser = JSON.parse(localStorage.getItem('currentuser') || '{}');
+        const cartItems = currentUser.cart || [];
+        
+        if (cartItems.length === 0) {
+            showToast({ 
+                type: 'warning', 
+                title: 'Giỏ hàng trống', 
+                message: 'Vui lòng thêm sản phẩm vào giỏ hàng!' 
+            });
+            return;
+        }
+        
+        console.log('📦 Cart has', cartItems.length, 'items');
+        
+        // Open checkout modal
+        if (typeof thanhtoanpage === 'function') {
+            await thanhtoanpage(1);
+            
+            const checkoutModal = document.querySelector('.checkout');
+            if (checkoutModal) {
+                checkoutModal.classList.add('open');
+                document.body.style.overflow = 'hidden';
+                console.log('✅ Checkout modal opened');
+            }
+        } else {
+            // Fallback: show simple alert for now
+            alert('Chức năng thanh toán đang được hoàn thiện. Hiện tại bạn có thể xem giỏ hàng.');
+        }
+        
+    } catch (error) {
+        console.error('❌ Checkout error:', error);
+        showToast({ 
+            type: 'error', 
+            title: 'Lỗi', 
+            message: 'Không thể mở thanh toán: ' + error.message 
+        });
+    }
+}
+
+// Backup version for the original complex function
+async function proceedToCheckoutOriginal() {
+    try {
+        console.log('🛒 Starting checkout process...');
+        
+        // Check for user (with fallback to localStorage)
+        let currentUser = null;
+        let cartItems = [];
+        
+        // Try API first if available
+        if (typeof api !== 'undefined' && api && api.getUserId) {
+            try {
+                const userId = api.getUserId();
+                if (userId) {
+                    const cartData = await api.getCart();
+                    cartItems = cartData.cart || [];
+                    console.log('✅ Cart loaded from API:', cartItems.length);
+                }
+            } catch (apiError) {
+                console.warn('⚠️ API checkout failed, falling back to localStorage:', apiError.message);
+            }
+        }
+        
+        // Fallback to localStorage
+        if (cartItems.length === 0) {
+            currentUser = JSON.parse(localStorage.getItem('currentuser') || '{}');
+            if (currentUser && currentUser.cart) {
+                cartItems = currentUser.cart;
+                console.log('✅ Cart loaded from localStorage:', cartItems.length);
+            }
+        }
+        
+        // Check if we have items
+        if (!cartItems || cartItems.length === 0) {
+            showToast({ type: 'error', title: 'Giỏ hàng trống', message: 'Vui lòng thêm sản phẩm vào giỏ hàng trước khi thanh toán!' });
+            return;
+        }
+
+        // Get product details for price calculation from localStorage
+        const products = JSON.parse(localStorage.getItem('products') || '[]');
+        console.log('📦 Available products for pricing:', products.length);
+        
+        const itemsWithPrices = cartItems.map(item => {
+            const product = products.find(p => p.id == item.id); // Use == for flexible comparison
+            const price = product ? product.price : 50000; // Default price if not found
+            
+            console.log(`💰 Item ${item.id}: ${item.soluong}x ${price}đ`);
+            return { ...item, price: price };
+        });
+
+        // Calculate total with real prices
+        const total = itemsWithPrices.reduce((sum, item) => sum + (item.price * item.soluong), 0);
+        console.log(`💵 Total calculated: ${total.toLocaleString('vi-VN')}đ`);
+
+        // Create order with required fields from checkout form
+        const orderData = {
+            hinhthucgiao: 'Giao tận nơi', // Default delivery method
+            ngaygiaohang: new Date().toISOString().split('T')[0], // Today's date
+            thoigiangiao: '', // Optional
+            ghichu: '', // Optional
+            tenguoinhan: 'Khách hàng', // Default name (should get from form)
+            sdtnhan: '0123456789', // Default phone (should get from form)  
+            diachinhan: 'Địa chỉ mặc định', // Default address (should get from form)
+            items: itemsWithPrices.map(item => ({
+                id: item.id,
+                soluong: item.soluong,
+                note: item.note || 'Không có ghi chú'
+            }))
+        };
+
+        showToast({ type: 'info', title: 'Đang xử lý', message: 'Đang tạo đơn hàng...' });
+
+        const token = api.getToken();
+        const headers = { 'Content-Type': 'application/json' };
+        if (token) {
+            headers['Authorization'] = `Bearer ${token}`;
+        }
+
+        const response = await fetch('http://localhost:3000/api/orders', {
+            method: 'POST',
+            headers: headers,
+            body: JSON.stringify(orderData)
+        });
+
+        if (response.ok) {
+            const order = await response.json();
+            
+            // Clear cart after successful order
+            await fetch(`http://localhost:3003/api/cart/${userId}`, {
+                method: 'DELETE'
+            });
+
+            showToast({ type: 'success', title: 'Thành công', message: 'Đặt hàng thành công!' });
+            
+            // Close cart modal and refresh
+            closeCart();
+            await updateCartModal();
+            
+        } else {
+            const errorText = await response.text();
+            console.error('Order creation failed:', response.status, errorText);
+            throw new Error(`Failed to create order: ${response.status} - ${errorText}`);
+        }
+
+    } catch (error) {
+        console.error('Error during checkout:', error);
+        showToast({ type: 'error', title: 'Lỗi', message: `Không thể thanh toán: ${error.message}` });
+    }
+}

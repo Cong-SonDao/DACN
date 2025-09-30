@@ -1,0 +1,1059 @@
+﻿const PHIVANCHUYEN = 30000;
+let priceFinal;
+
+// Initialize API client with fallback
+let api;
+try {
+    if (typeof VyFoodAPI !== 'undefined') {
+        api = new VyFoodAPI();
+        console.log('âœ… VyFoodAPI initialized');
+    } else {
+        console.warn('â ï¸ VyFoodAPI class not found, using localStorage fallback');
+        api = null;
+    }
+} catch (error) {
+    console.warn('âŒ VyFoodAPI initialization failed, using fallback functions:', error.message);
+    api = null;
+}
+
+// Cart helper functions for checkout
+async function getAmountCart() {
+    if (!api) {
+        // Fallback to localStorage for testing
+        const currentUser = JSON.parse(localStorage.getItem('currentuser'));
+        if (currentUser && currentUser.cart) {
+            return currentUser.cart.reduce((total, item) => total + parseInt(item.soluong), 0);
+        }
+        return 0;
+    }
+    
+    try {
+        const cartData = await api.getCart();
+        const cartItems = cartData.cart || [];
+        return cartItems.reduce((total, item) => total + parseInt(item.soluong), 0);
+    } catch (error) {
+        console.error('Error getting cart amount:', error);
+        // Fallback to localStorage
+        const currentUser = JSON.parse(localStorage.getItem('currentuser'));
+        if (currentUser && currentUser.cart) {
+            return currentUser.cart.reduce((total, item) => total + parseInt(item.soluong), 0);
+        }
+        return 0;
+    }
+}
+
+async function getCartTotal() {
+    if (!api) {
+        // Fallback to localStorage for testing
+        const currentUser = JSON.parse(localStorage.getItem('currentuser'));
+        const products = JSON.parse(localStorage.getItem('products')) || [];
+        
+        if (currentUser && currentUser.cart) {
+            let total = 0;
+            for (const item of currentUser.cart) {
+                const product = products.find(p => p.id === item.id);
+                if (product) {
+                    total += parseInt(item.soluong) * parseInt(product.price);
+                }
+            }
+            return total;
+        }
+        return 0;
+    }
+    
+    try {
+        const cartData = await api.getCart();
+        const cartItems = cartData.cart || [];
+        
+        let total = 0;
+        for (const item of cartItems) {
+            // Get product details
+            const products = JSON.parse(localStorage.getItem('products')) || [];
+            const product = products.find(p => p.id === item.id);
+            
+            if (product) {
+                total += parseInt(item.soluong) * parseInt(product.price);
+            }
+        }
+        
+        return total;
+    } catch (error) {
+        console.error('Error calculating cart total:', error);
+        // Fallback to localStorage
+        const currentUser = JSON.parse(localStorage.getItem('currentuser'));
+        const products = JSON.parse(localStorage.getItem('products')) || [];
+        
+        if (currentUser && currentUser.cart) {
+            let total = 0;
+            for (const item of currentUser.cart) {
+                const product = products.find(p => p.id === item.id);
+                if (product) {
+                    total += parseInt(item.soluong) * parseInt(product.price);
+                }
+            }
+            return total;
+        }
+        return 0;
+    }
+}
+
+// vnd function for formatting currency
+function vnd(price) {
+    return price.toLocaleString('vi-VN', { style: 'currency', currency: 'VND' });
+}
+
+// Trang thanh toan
+async function thanhtoanpage(option,product) {
+    // Get priceFinal element when needed
+    priceFinal = document.getElementById("checkout-cart-price-final");
+    if (!priceFinal) {
+        console.warn('checkout-cart-price-final element not found');
+    }
+    // Xu ly ngay nhan hang
+    let today = new Date();
+    let ngaymai = new Date();
+    let ngaykia = new Date();
+    ngaymai.setDate(today.getDate() + 1);
+    ngaykia.setDate(today.getDate() + 2);
+    let dateorderhtml = `<a href="javascript:;" class="pick-date active" data-date="${today}">
+        <span class="text">HĂ´m nay</span>
+        <span class="date">${today.getDate()}/${today.getMonth() + 1}</span>
+        </a>
+        <a href="javascript:;" class="pick-date" data-date="${ngaymai}">
+            <span class="text">NgĂ y mai</span>
+            <span class="date">${ngaymai.getDate()}/${ngaymai.getMonth() + 1}</span>
+        </a>
+
+        <a href="javascript:;" class="pick-date" data-date="${ngaykia}">
+            <span class="text">NgĂ y kia</span>
+            <span class="date">${ngaykia.getDate()}/${ngaykia.getMonth() + 1}</span>
+    </a>`
+    document.querySelector('.date-order').innerHTML = dateorderhtml;
+    let pickdate = document.getElementsByClassName('pick-date')
+    for(let i = 0; i < pickdate.length; i++) {
+        pickdate[i].onclick = function () {
+            document.querySelector(".pick-date.active").classList.remove("active");
+            this.classList.add('active');
+        }
+    }
+
+    let totalBillOrder = document.querySelector('.total-bill-order');
+    let totalBillOrderHtml;
+    // Xu ly don hang
+    switch (option) {
+        case 1: // Truong hop thanh toan san pham trong gio
+            // Hien thi don hang
+            await showProductCart(); // Now properly await the async function
+            
+            // Tinh tien (await async functions)
+            const cartAmount = await getAmountCart();
+            const cartTotal = await getCartTotal();
+            
+            totalBillOrderHtml = `<div class="priceFlx">
+            <div class="text">
+                Tiá»n hĂ ng 
+                <span class="count">${cartAmount} mĂ³n</span>
+            </div>
+            <div class="price-detail">
+                <span id="checkout-cart-total">${vnd(cartTotal)}</span>
+            </div>
+        </div>
+        <div class="priceFlx chk-ship">
+            <div class="text">PhĂ­ váº­n chuyá»ƒn</div>
+            <div class="price-detail chk-free-ship">
+                <span>${vnd(PHIVANCHUYEN)}</span>
+            </div>
+        </div>`;
+            // Tong tien
+            if (priceFinal) {
+                priceFinal.innerText = vnd(cartTotal + PHIVANCHUYEN);
+            }
+            break;
+        case 2: // Truong hop mua ngay
+            // Hien thi san pham
+            showProductBuyNow(product);
+            // Tinh tien
+            totalBillOrderHtml = `<div class="priceFlx">
+                <div class="text">
+                    Tiá»n hĂ ng 
+                    <span class="count">${product.soluong} mĂ³n</span>
+                </div>
+                <div class="price-detail">
+                    <span id="checkout-cart-total">${vnd(product.soluong * product.price)}</span>
+                </div>
+            </div>
+            <div class="priceFlx chk-ship">
+                <div class="text">PhĂ­ váº­n chuyá»ƒn</div>
+                <div class="price-detail chk-free-ship">
+                    <span>${vnd(PHIVANCHUYEN)}</span>
+                </div>
+            </div>`
+            // Tong tien
+            if (priceFinal) {
+                priceFinal.innerText = vnd((product.soluong * product.price) + PHIVANCHUYEN);
+            }
+            break;
+    }
+
+    // Tinh tien
+    totalBillOrder.innerHTML = totalBillOrderHtml;
+
+    // Xu ly hinh thuc giao hang - ENHANCED VERSION  
+    setTimeout(() => {
+        const giaotannoi = document.querySelector('#giaotannoi');
+        const tudenlay = document.querySelector('#tudenlay');
+        const tudenlayGroup = document.querySelector('#tudenlay-group');
+        const chkShip = document.querySelectorAll(".chk-ship");
+        
+        if (giaotannoi && tudenlay) {
+            console.log('âœ… Delivery buttons found and initialized');
+            
+            // Force CSS styles for active state
+            const activeStyle = `
+                border: 2px solid #dc3545 !important;
+                background: rgba(220, 53, 69, 0.1) !important;
+                color: #dc3545 !important;
+            `;
+            
+            tudenlay.onclick = function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                console.log('đŸ Clicked Tá»± Ä‘áº¿n láº¥y button');
+                
+                // Remove active from giao tan noi
+                giaotannoi.classList.remove("active");
+                giaotannoi.style.cssText = '';
+                
+                // Add active to tu den lay with force CSS
+                tudenlay.classList.add("active");
+                tudenlay.style.cssText = activeStyle;
+                
+                console.log('âœ… Tá»± Ä‘áº¿n láº¥y is now active');
+                
+                chkShip.forEach(item => item.style.display = "none");
+                if (tudenlayGroup) tudenlayGroup.style.display = "block";
+                
+                if (typeof option !== 'undefined' && typeof priceFinal !== 'undefined') {
+                    switch (option) {
+                        case 1:
+                            getCartTotal().then(total => {
+                                if (priceFinal) priceFinal.innerText = vnd(total);
+                            }).catch(err => console.error('Error updating price:', err));
+                            break;
+                        case 2:
+                            if (product && product.soluong && product.price && priceFinal) {
+                                priceFinal.innerText = vnd((product.soluong * product.price));
+                            }
+                            break;
+                    }
+                }
+            };
+
+            giaotannoi.onclick = function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                console.log('đŸ  Clicked Giao táº­n nÆ¡i button');
+                
+                // Remove active from tu den lay
+                tudenlay.classList.remove("active");
+                tudenlay.style.cssText = '';
+                
+                // Add active to giao tan noi with force CSS
+                giaotannoi.classList.add("active");
+                giaotannoi.style.cssText = activeStyle;
+                
+                console.log('âœ… Giao táº­n nÆ¡i is now active');
+                
+                if (tudenlayGroup) tudenlayGroup.style.display = "none";
+                chkShip.forEach(item => item.style.display = "flex");
+                
+                if (typeof option !== 'undefined' && typeof priceFinal !== 'undefined') {
+                    switch (option) {
+                        case 1:
+                            getCartTotal().then(total => {
+                                if (priceFinal) priceFinal.innerText = vnd(total + PHIVANCHUYEN);
+                            }).catch(err => console.error('Error updating price with shipping:', err));
+                            break;
+                        case 2:
+                            if (product && product.soluong && product.price && typeof PHIVANCHUYEN !== 'undefined' && priceFinal) {
+                                priceFinal.innerText = vnd((product.soluong * product.price) + PHIVANCHUYEN);
+                            }
+                            break;
+                    }
+                }
+            };
+        } else {
+            console.log('â ï¸ Delivery buttons not found');
+        }
+    }, 200);
+
+    // Su kien khu nhan nut dat hang
+    document.querySelector(".complete-checkout-btn").onclick = () => {
+        switch (option) {
+            case 1:
+                xulyDathang();
+                break;
+            case 2:
+                xulyDathang(product);
+                break;
+        }
+    }
+}
+
+// Hien thi hang trong gio
+async function showProductCart() {
+    const listOrder = document.getElementById("list-order-checkout");
+    
+    try {
+        console.log('đŸ›’ Loading cart for checkout...');
+        
+        let cartItems = [];
+        
+        // Always try localStorage first for reliability
+        try {
+            const currentUser = JSON.parse(localStorage.getItem('currentuser') || '{}');
+            if (currentUser && Array.isArray(currentUser.cart)) {
+                cartItems = currentUser.cart;
+                console.log('âœ… Cart loaded from localStorage:', cartItems.length, 'items');
+            }
+        } catch (localError) {
+            console.error('âŒ Error reading from localStorage:', localError);
+        }
+        
+        // If we have API and no cart from localStorage, try API
+        if (api && cartItems.length === 0) {
+            try {
+                console.log('đŸŒ Trying to load cart from API...');
+                const cartData = await api.getCart();
+                cartItems = cartData.cart || [];
+                console.log('âœ… Cart loaded from API:', cartItems.length, 'items');
+            } catch (apiError) {
+                console.warn('â ï¸ API failed, using localStorage:', apiError.message);
+            }
+        }
+        
+        console.log('đŸ“¦ Final cart items:', cartItems);
+        
+        let listOrderHtml = '';
+        
+        if (!listOrder) {
+            console.error('âŒ Element "list-order-checkout" not found');
+            return;
+        }
+        
+        if (cartItems.length === 0) {
+            listOrderHtml = '<p style="text-align: center; padding: 20px; color: #666;">Giá» hĂ ng trá»‘ng</p>';
+        } else {
+            // Get products from localStorage
+            let products = [];
+            try {
+                products = JSON.parse(localStorage.getItem('products') || '[]');
+                console.log('đŸ• Available products:', products.length);
+            } catch (prodError) {
+                console.error('âŒ Error loading products:', prodError);
+                products = [];
+            }
+            
+            // Get product details for each cart item
+            for (const item of cartItems) {
+                if (!item || typeof item.id === 'undefined' || !item.soluong) {
+                    console.warn('â ï¸ Invalid cart item:', item);
+                    continue;
+                }
+                
+                const product = products.find(p => p && p.id == item.id); // Use == for type flexibility
+                
+                if (product) {
+                    listOrderHtml += `<div class="food-total">
+                        <div class="count">${item.soluong}x</div>
+                        <div class="info-food">
+                            <div class="name-food">${product.title || 'Sáº£n pháº©m'}</div>
+                            <div class="price-food">${vnd(product.price || 0)}</div>
+                        </div>
+                    </div>`;
+                } else {
+                    console.warn('â ï¸ Product not found for item:', item);
+                    listOrderHtml += `<div class="food-total">
+                        <div class="count">${item.soluong}x</div>
+                        <div class="info-food">
+                            <div class="name-food">Sáº£n pháº©m #${item.id}</div>
+                            <div class="price-food">50,000â‚«</div>
+                        </div>
+                    </div>`;
+                }
+            }
+            
+            if (!listOrderHtml) {
+                listOrderHtml = '<p style="text-align: center; padding: 20px; color: #666;">KhĂ´ng cĂ³ sáº£n pháº©m há»£p lá»‡</p>';
+            }
+        }
+        
+        listOrder.innerHTML = listOrderHtml;
+        console.log('âœ… Cart display updated');
+        
+        // Update total price if function exists
+        if (typeof updateCheckoutTotal === 'function') {
+            try {
+                await updateCheckoutTotal();
+                console.log('âœ… Checkout total updated');
+            } catch (totalError) {
+                console.warn('â ï¸ Error updating checkout total:', totalError.message);
+            }
+        }
+        
+    } catch (error) {
+        console.error('âŒ Error showing product cart:', error);
+        if (listOrder) {
+            listOrder.innerHTML = `<p style="text-align: center; padding: 20px; color: #dc3545;">âŒ Lá»—i táº£i giá» hĂ ng: ${error.message}</p>`;
+        }
+    }
+}
+
+// Update checkout total for microservices
+async function updateCheckoutTotal() {
+    try {
+        console.log('đŸ§® Updating checkout total...');
+        const cartData = await api.getCart();
+        const cartItems = cartData.cart || [];
+        
+        console.log('đŸ›’ Cart data for checkout:', cartData);
+        console.log('đŸ“¦ Cart items count:', cartItems.length);
+        
+        let total = 0;
+        let itemCount = 0;
+        
+        // Calculate total from cart items
+        for (const item of cartItems) {
+            let product = null;
+            
+            // Find product in global products array
+            if (window.products && Array.isArray(window.products)) {
+                product = window.products.find(p => p.id === item.id);
+            }
+            
+            const price = product ? product.price : 50000; // Default price
+            const itemTotal = price * item.soluong;
+            
+            console.log(`đŸ’° Item ${item.id}: ${item.soluong}x ${vnd(price)} = ${vnd(itemTotal)}`);
+            
+            total += itemTotal;
+            itemCount += item.soluong;
+        }
+        
+        console.log(`đŸ’µ Final total: ${vnd(total)}, items: ${itemCount}`);
+        
+        // Update DOM elements
+        const checkoutTotal = document.getElementById("checkout-cart-total");
+        const checkoutFinal = document.getElementById("checkout-cart-price-final");
+        const countElement = document.querySelector('.count');
+        
+        if (checkoutTotal) checkoutTotal.textContent = vnd(total);
+        if (checkoutFinal) checkoutFinal.textContent = vnd(total + PHIVANCHUYEN);
+        if (countElement) countElement.textContent = `${itemCount} mĂ³n`;
+        
+        // Enable/disable order button
+        const orderButton = document.querySelector('.bill-payment button');
+        if (orderButton) {
+            if (total > 0) {
+                orderButton.disabled = false;
+                orderButton.style.opacity = '1';
+                orderButton.style.cursor = 'pointer';
+            } else {
+                orderButton.disabled = true;
+                orderButton.style.opacity = '0.5';
+                orderButton.style.cursor = 'not-allowed';
+            }
+        }
+        
+        return total;
+        
+    } catch (error) {
+        console.error('Error updating checkout total:', error);
+        return 0;
+    }
+}
+
+// Complete checkout function
+async function completeCheckout() {
+    try {
+        const userId = api.getUserId();
+        if (!userId) {
+            showToast({ type: 'error', title: 'Lá»—i', message: 'Vui lĂ²ng Ä‘Äƒng nháº­p Ä‘á»ƒ Ä‘áº·t hĂ ng' });
+            return;
+        }
+
+        // Get current cart
+        const cartData = await api.getCart();
+        if (!cartData || !cartData.cart || cartData.cart.length === 0) {
+            showToast({ type: 'error', title: 'Lá»—i', message: 'Giá» hĂ ng trá»‘ng!' });
+            return;
+        }
+
+        // Get form data
+        const tenguoinhan = document.getElementById('tennguoinhan')?.value || 'KhĂ¡ch hĂ ng';
+        const sdtnhan = document.getElementById('sdtnhan')?.value || '0123456789';
+        const diachinhan = document.getElementById('diachinhan')?.value || 'Äá»‹a chá»‰ máº·c Ä‘á»‹nh';
+        const ghichu = document.querySelector('.note-order')?.value || '';
+
+        // Get delivery method
+        const giaotannoi = document.getElementById('giaotannoi')?.checked;
+        const hinhthucgiao = giaotannoi ? 'Giao táº­n nÆ¡i' : 'Tá»± Ä‘áº¿n láº¥y';
+
+        // Get delivery date
+        const activeDate = document.querySelector('.pick-date.active');
+        const ngaygiaohang = activeDate ? activeDate.getAttribute('data-date') : new Date().toISOString().split('T')[0];
+
+        // Get delivery time
+        const thoigiangiao = document.querySelector('.choise-time')?.value || '';
+
+        // Calculate items with prices
+        const itemsWithPrices = [];
+        for (const item of cartData.cart) {
+            let product = null;
+            if (window.products && Array.isArray(window.products)) {
+                product = window.products.find(p => p.id === item.id);
+            }
+            
+            itemsWithPrices.push({
+                id: item.id,
+                soluong: item.soluong,
+                note: item.note || 'KhĂ´ng cĂ³ ghi chĂº'
+            });
+        }
+
+        // Create order data
+        const orderData = {
+            hinhthucgiao: hinhthucgiao,
+            ngaygiaohang: ngaygiaohang,
+            thoigiangiao: thoigiangiao,
+            ghichu: ghichu,
+            tenguoinhan: tenguoinhan,
+            sdtnhan: sdtnhan,
+            diachinhan: diachinhan,
+            items: itemsWithPrices
+        };
+
+        showToast({ type: 'info', title: 'Äang xá»­ lĂ½', message: 'Äang táº¡o Ä‘Æ¡n hĂ ng...' });
+
+        const token = api.getToken();
+        const headers = { 'Content-Type': 'application/json' };
+        if (token) {
+            headers['Authorization'] = `Bearer ${token}`;
+        }
+
+        const response = await fetch('http://localhost:3000/api/orders', {
+            method: 'POST',
+            headers: headers,
+            body: JSON.stringify(orderData)
+        });
+
+        if (response.ok) {
+            const order = await response.json();
+            
+            // Clear cart after successful order
+            await fetch(`http://localhost:3003/api/cart/${userId}`, {
+                method: 'DELETE'
+            });
+
+            showToast({ type: 'success', title: 'ThĂ nh cĂ´ng', message: 'Äáº·t hĂ ng thĂ nh cĂ´ng!' });
+            
+            // Redirect back to home page after 2 seconds
+            setTimeout(() => {
+                window.location.href = '/';
+            }, 2000);
+            
+        } else {
+            const errorText = await response.text();
+            console.error('Order creation failed:', response.status, errorText);
+            throw new Error(`Failed to create order: ${response.status} - ${errorText}`);
+        }
+
+    } catch (error) {
+        console.error('Error during checkout:', error);
+        showToast({ type: 'error', title: 'Lá»—i', message: `KhĂ´ng thá»ƒ Ä‘áº·t hĂ ng: ${error.message}` });
+    }
+}
+
+// Hien thi hang mua ngay
+function showProductBuyNow(product) {
+    let listOrder = document.getElementById("list-order-checkout");
+    let listOrderHtml = `<div class="food-total">
+        <div class="count">${product.soluong}x</div>
+        <div class="info-food">
+            <div class="name-food">${product.title}</div>
+        </div>
+    </div>`;
+    listOrder.innerHTML = listOrderHtml;
+}
+
+//Open Page Checkout
+let nutthanhtoan = document.querySelector('.thanh-toan')
+let checkoutpage = document.querySelector('.checkout-page');
+nutthanhtoan.addEventListener('click', async () => {
+    checkoutpage.classList.add('active');
+    await thanhtoanpage(1);
+    closeCart();
+    body.style.overflow = "hidden"
+})
+
+// Äáº·t hĂ ng ngay
+function dathangngay() {
+    let productInfo = document.getElementById("product-detail-content");
+    let datHangNgayBtn = productInfo.querySelector(".button-dathangngay");
+    datHangNgayBtn.onclick = () => {
+        if(localStorage.getItem('currentuser')) {
+            let productId = datHangNgayBtn.getAttribute("data-product");
+            let soluong = parseInt(productInfo.querySelector(".buttons_added .input-qty").value);
+            let notevalue = productInfo.querySelector("#popup-detail-note").value;
+            let ghichu = notevalue == "" ? "KhĂ´ng cĂ³ ghi chĂº" : notevalue;
+            let products = JSON.parse(localStorage.getItem('products'));
+            let a = products.find(item => item.id == productId);
+            a.soluong = parseInt(soluong);
+            a.note = ghichu;
+            checkoutpage.classList.add('active');
+            thanhtoanpage(2,a);
+            closeCart();
+            body.style.overflow = "hidden"
+        } else {
+            toast({ title: 'Warning', message: 'ChÆ°a Ä‘Äƒng nháº­p tĂ i khoáº£n !', type: 'warning', duration: 3000 });
+        }
+    }
+}
+
+// Close Page Checkout
+function closecheckout() {
+    checkoutpage.classList.remove('active');
+    body.style.overflow = "auto"
+}
+
+// Global delivery method selector - RADIO BUTTON STYLE
+window.selectDeliveryMethod = function(selectedMethod) {
+    console.log('đŸ¯ Selected delivery method:', selectedMethod);
+    
+    const giaotannoi = document.getElementById('giaotannoi');
+    const tudenlay = document.getElementById('tudenlay');
+    const chkShip = document.querySelectorAll('.chk-ship');
+    
+    // Active and inactive styles
+    const activeStyle = 'border: 2px solid #dc3545 !important; background: rgba(220, 53, 69, 0.1) !important; color: #dc3545 !important; font-weight: bold !important;';
+    const inactiveStyle = 'border: 1px solid #ddd !important; background: white !important; color: #666 !important; font-weight: normal !important;';
+    
+    if (selectedMethod === 'giaotannoi') {
+        // Activate "Giao táº­n nÆ¡i"
+        giaotannoi.classList.add('active');
+        giaotannoi.style.cssText = activeStyle;
+        
+        // Deactivate "Tá»± Ä‘áº¿n láº¥y" 
+        tudenlay.classList.remove('active');
+        tudenlay.style.cssText = inactiveStyle;
+        
+        // Show shipping address field
+        chkShip.forEach(item => item.style.display = 'flex');
+        
+        console.log('âœ… GIAO Táº¬N NÆ I Ä‘Æ°á»£c chá»n - yĂªu cáº§u Ä‘á»‹a chá»‰');
+        
+    } else if (selectedMethod === 'tudenlay') {
+        // Activate "Tá»± Ä‘áº¿n láº¥y"
+        tudenlay.classList.add('active');
+        tudenlay.style.cssText = activeStyle;
+        
+        // Deactivate "Giao táº­n nÆ¡i"
+        giaotannoi.classList.remove('active');
+        giaotannoi.style.cssText = inactiveStyle;
+        
+        // Hide shipping address field
+        chkShip.forEach(item => item.style.display = 'none');
+        
+        console.log('âœ… Tá»° Äáº¾N Láº¤Y Ä‘Æ°á»£c chá»n - khĂ´ng cáº§n Ä‘á»‹a chá»‰');
+    }
+};
+
+// Set default method on page load
+window.addEventListener('load', function() {
+    setTimeout(function() {
+        selectDeliveryMethod('giaotannoi'); // Default to "Giao táº­n nÆ¡i"
+    }, 500);
+});
+
+// Global delivery switcher function - ALWAYS WORKS  
+window.switchDelivery = function(type) {
+    console.log('đŸ”„ switchDelivery called with:', type);
+    
+    const giaotannoi = document.getElementById('giaotannoi');
+    const tudenlay = document.getElementById('tudenlay');
+    const tudenlayGroup = document.getElementById('tudenlay-group');
+    const chkShip = document.querySelectorAll('.chk-ship');
+    
+    // Force active styles
+    const activeStyle = 'border: 2px solid #dc3545 !important; background: rgba(220, 53, 69, 0.1) !important; color: #dc3545 !important;';
+    const inactiveStyle = 'border: 1px solid #ddd !important; background: white !important; color: #333 !important;';
+    
+    if (type === 'tudenlay') {
+        console.log('âœ… Switching to Tá»° Äáº¾N Láº¤Y');
+        
+        // Remove active from giao tan noi
+        if (giaotannoi) {
+            giaotannoi.classList.remove('active');
+            giaotannoi.style.cssText = inactiveStyle;
+        }
+        
+        // Add active to tu den lay  
+        if (tudenlay) {
+            tudenlay.classList.add('active');
+            tudenlay.style.cssText = activeStyle;
+        }
+        
+        // Hide shipping fields
+        chkShip.forEach(item => item.style.display = 'none');
+        if (tudenlayGroup) tudenlayGroup.style.display = 'block';
+        
+    } else if (type === 'giaotannoi') {
+        console.log('âœ… Switching to GIAO Táº¬N NÆ I');
+        
+        // Remove active from tu den lay
+        if (tudenlay) {
+            tudenlay.classList.remove('active');
+            tudenlay.style.cssText = inactiveStyle;
+        }
+        
+        // Add active to giao tan noi
+        if (giaotannoi) {
+            giaotannoi.classList.add('active');
+            giaotannoi.style.cssText = activeStyle;
+        }
+        
+        // Show shipping fields
+        chkShip.forEach(item => item.style.display = 'flex');
+        if (tudenlayGroup) tudenlayGroup.style.display = 'none';
+    }
+    
+    console.log('đŸ¯ Switch completed!');
+};
+
+// Auto-fill user info when page loads
+function fillUserInfo() {
+    try {
+        const currentUser = JSON.parse(localStorage.getItem('currentuser'));
+        if (currentUser) {
+            const nameInput = document.getElementById('tennguoinhan');
+            const phoneInput = document.getElementById('sdtnhan');
+            const addressInput = document.getElementById('diachinhan');
+
+            if (nameInput && !nameInput.value) {
+                nameInput.value = currentUser.ho + ' ' + currentUser.ten || '';
+            }
+            if (phoneInput && !phoneInput.value) {
+                phoneInput.value = currentUser.sodienthoai || '';
+            }
+            if (addressInput && !addressInput.value) {
+                addressInput.value = currentUser.diachi || '';
+            }
+        }
+    } catch (error) {
+        console.log('Auto-fill user info failed:', error);
+    }
+}
+
+// Call fillUserInfo when checkout page loads
+document.addEventListener('DOMContentLoaded', fillUserInfo);
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', fillUserInfo);
+} else {
+    fillUserInfo();
+}
+
+// Thong tin cac don hang da mua - Xu ly khi nhan nut dat hang
+function xulyDathang(product) {
+    let diachinhan = "";
+    let hinhthucgiao = "";
+    let thoigiangiao = "";
+    let giaotannoi = document.querySelector("#giaotannoi");
+    let tudenlay = document.querySelector("#tudenlay");
+    let giaongay = document.querySelector("#giaongay");
+    let giaovaogio = document.querySelector("#deliverytime");
+    let currentUser = JSON.parse(localStorage.getItem('currentuser'));
+    // Hinh thuc giao & Dia chi nhan hang
+    if(giaotannoi.classList.contains("active")) {
+        diachinhan = document.querySelector("#diachinhan").value;
+        hinhthucgiao = giaotannoi.innerText;
+    }
+    if(tudenlay.classList.contains("active")){
+        let chinhanh1 = document.querySelector("#chinhanh-1");
+        let chinhanh2 = document.querySelector("#chinhanh-2");
+        if(chinhanh1.checked) {
+            diachinhan = "273 An DÆ°Æ¡ng VÆ°Æ¡ng, PhÆ°á»ng 3, Quáº­n 5";
+        }
+        if(chinhanh2.checked) {
+            diachinhan = "04 TĂ´n Äá»©c Tháº¯ng, PhÆ°á»ng Báº¿n NghĂ©, Quáº­n 1";
+        }
+        hinhthucgiao = tudenlay.innerText;
+    }
+
+    // Thoi gian nhan hang
+    if(giaongay.checked) {
+        thoigiangiao = "Giao ngay khi xong";
+    }
+
+    if(giaovaogio.checked) {
+        thoigiangiao = document.querySelector(".choise-time").value;
+    }
+
+    let orderDetails = localStorage.getItem("orderDetails") ? JSON.parse(localStorage.getItem("orderDetails")) : [];
+    let order = localStorage.getItem("order") ? JSON.parse(localStorage.getItem("order")) : [];
+    let madon = createId(order);
+    let tongtien = 0;
+    if(product == undefined) {
+        currentUser.cart.forEach(item => {
+            item.madon = madon;
+            item.price = getpriceProduct(item.id);
+            tongtien += item.price * item.soluong;
+            orderDetails.push(item);
+        });
+    } else {
+        product.madon = madon;
+        product.price = getpriceProduct(product.id);
+        tongtien += product.price * product.soluong;
+        orderDetails.push(product);
+    }   
+    
+    let tennguoinhan = document.querySelector("#tennguoinhan").value;
+    let sdtnhan = document.querySelector("#sdtnhan").value
+
+    if(tennguoinhan == "" || sdtnhan == "" || diachinhan == "") {
+        toast({ title: 'ChĂº Ă½', message: 'Vui lĂ²ng nháº­p Ä‘áº§y Ä‘á»§ thĂ´ng tin !', type: 'warning', duration: 4000 });
+    } else {
+        let donhang = {
+            id: madon,
+            khachhang: currentUser.phone,
+            hinhthucgiao: hinhthucgiao,
+            ngaygiaohang: document.querySelector(".pick-date.active").getAttribute("data-date"),
+            thoigiangiao: thoigiangiao,
+            ghichu: document.querySelector(".note-order").value,
+            tenguoinhan: tennguoinhan,
+            sdtnhan: sdtnhan,
+            diachinhan: diachinhan,
+            thoigiandat: new Date(),
+            tongtien:tongtien,
+            trangthai: 0
+        }
+    
+        order.unshift(donhang);
+        if(product == null) {
+            currentUser.cart.length = 0;
+        }
+    
+        localStorage.setItem("order",JSON.stringify(order));
+        localStorage.setItem("currentuser",JSON.stringify(currentUser));
+        localStorage.setItem("orderDetails",JSON.stringify(orderDetails));
+        toast({ title: 'ThĂ nh cĂ´ng', message: 'Äáº·t hĂ ng thĂ nh cĂ´ng !', type: 'success', duration: 1000 });
+        setTimeout((e)=>{
+            window.location = "/";
+        },2000);  
+    }
+}
+
+function getpriceProduct(id) {
+    let products = JSON.parse(localStorage.getItem('products'));
+    let sp = products.find(item => {
+        return item.id == id;
+    })
+    return sp.price;
+}
+
+// Complete checkout with microservices - OPTIMIZED VERSION
+async function completeCheckout() {
+    console.log('đŸ€ Starting FAST checkout...');
+    
+    // Show loading immediately
+    const submitBtn = document.querySelector('.complete-checkout-btn');
+    const originalText = submitBtn.textContent;
+    submitBtn.textContent = 'Äang xá»­ lĂ½...';
+    submitBtn.disabled = true;
+    
+    try {
+        // Get form values with debug
+        const deliveryMethodBtn = document.querySelector('.type-order-btn.active');
+        const deliveryTime = document.querySelector('input[name="delivery-time"]:checked');
+        const customerName = document.getElementById('tennguoinhan')?.value?.trim();
+        const customerPhone = document.getElementById('sdtnhan')?.value?.trim();
+        const customerAddress = document.getElementById('diachinhan')?.value?.trim();
+        const note = document.getElementById('note')?.value?.trim();
+        const userId = api.getUserId();
+
+        // Get delivery method from active button
+        const deliveryMethod = deliveryMethodBtn ? deliveryMethodBtn.id : null;
+
+        console.log('đŸ” Form validation debug:', {
+            deliveryMethodBtn: deliveryMethodBtn,
+            deliveryMethod: deliveryMethod,
+            customerName: customerName,
+            customerPhone: customerPhone,
+            customerAddress: customerAddress,
+            userId: userId
+        });
+
+        // Detailed validation with specific messages
+        if (!userId) {
+            throw new Error('Vui lĂ²ng Ä‘Äƒng nháº­p láº¡i!');
+        }
+
+        if (!customerName || customerName.length < 2) {
+            throw new Error('Vui lĂ²ng nháº­p tĂªn ngÆ°á»i nháº­n (Ă­t nháº¥t 2 kĂ½ tá»±)!');
+        }
+
+        if (!customerPhone || customerPhone.length < 10) {
+            throw new Error('Vui lĂ²ng nháº­p sá»‘ Ä‘iá»‡n thoáº¡i há»£p lá»‡ (10 sá»‘)!');
+        }
+
+        if (!deliveryMethod) {
+            throw new Error('Vui lĂ²ng chá»n hĂ¬nh thá»©c giao hĂ ng!');
+        }
+
+        if (deliveryMethod === 'giaotannoi' && !customerAddress) {
+            throw new Error('Vui lĂ²ng nháº­p Ä‘á»‹a chá»‰ giao hĂ ng!');
+        }
+
+        // Use cached cart total instead of recalculating
+        const totalElement = document.querySelector('.cart-item-total');
+        const totalAmount = parseInt(totalElement.textContent.replace(/[^\d]/g, '')) || 0;
+        
+        if (totalAmount === 0) {
+            throw new Error('Giá» hĂ ng trá»‘ng hoáº·c cĂ³ lá»—i!');
+        }
+
+        console.log('đŸ’° Using cached total:', totalAmount);
+
+        // Get cart items for order
+        const cartData = await api.getCart(userId);
+        if (!cartData.cart || cartData.cart.length === 0) {
+            throw new Error('Giá» hĂ ng trá»‘ng!');
+        }
+
+        // Validate phone number format (must be exactly 10 digits)
+        const phoneRegex = /^[0-9]{10}$/;
+        if (!phoneRegex.test(customerPhone)) {
+            throw new Error('Sá»‘ Ä‘iá»‡n thoáº¡i pháº£i cĂ³ Ä‘Ăºng 10 chá»¯ sá»‘!');
+        }
+
+        // Prepare order data with PRICES included to avoid Product Service calls
+        const orderData = {
+            hinhthucgiao: deliveryMethod === 'giaotannoi' ? 'Giao táº­n nÆ¡i' : 'Tá»± Ä‘áº¿n láº¥y',
+            ngaygiaohang: new Date(), // Date object, not string
+            thoigiangiao: deliveryTime?.value || '',
+            ghichu: note || '',
+            tenguoinhan: customerName,
+            sdtnhan: customerPhone, // Must be exactly 10 digits
+            diachinhan: deliveryMethod === 'giaotannoi' ? customerAddress : 'Láº¥y táº¡i cá»­a hĂ ng',
+            tongtien: totalAmount, // Include total amount
+            items: cartData.cart.map(item => {
+                // Find product price from window.products to avoid API call
+                const product = window.products ? window.products.find(p => p.id == item.id) : null;
+                const price = product ? product.price : 50000; // Default fallback price
+                
+                return {
+                    id: parseInt(item.id),
+                    soluong: parseInt(item.soluong),
+                    note: item.note || 'KhĂ´ng cĂ³ ghi chĂº',
+                    price: price // Include price to avoid Product Service lookup
+                };
+            })
+        };
+
+        console.log('đŸ“‹ VALIDATED order data:', {
+            ...orderData,
+            ngaygiaohang: orderData.ngaygiaohang.toISOString(), // Log as string for readability
+            phoneValid: phoneRegex.test(orderData.sdtnhan),
+            itemCount: orderData.items.length
+        });
+
+        console.log('đŸ“‹ Fast order data:', orderData);
+
+        // HYBRID APPROACH: Fast UX + Microservices Architecture
+        console.log('đŸ€ HYBRID: Fast local + async microservices sync');
+        
+        // 1. IMMEDIATE LOCAL SAVE for fast UX
+        const currentUser = JSON.parse(localStorage.getItem('currentuser') || '{}');
+        const existingOrders = JSON.parse(localStorage.getItem('order') || '[]');
+        const tempOrderId = `TEMP${Date.now()}`;
+        
+        const localOrder = {
+            id: tempOrderId,
+            khachhang: currentUser.id || userId,
+            hinhthucgiao: orderData.hinhthucgiao,
+            ngaygiaohang: new Date().toISOString(),
+            tenguoinhan: orderData.tenguoinhan,
+            sdtnhan: orderData.sdtnhan,
+            diachinhan: orderData.diachinhan,
+            ghichu: orderData.ghichu || 'KhĂ´ng cĂ³ ghi chĂº',
+            tongtien: totalAmount,
+            trangthai: -1, // -1: Äang xá»­ lĂ½, 0: Chá» xĂ¡c nháº­n, 1: ÄĂ£ xĂ¡c nháº­n
+            synced: false, // Track if synced to server
+            items: cartData.cart.map(item => {
+                const product = window.products ? window.products.find(p => p.id == item.id) : null;
+                return {
+                    id: item.id,
+                    name: product ? product.title : `Sáº£n pháº©m #${item.id}`,
+                    soluong: item.soluong,
+                    price: product ? product.price : 50000,
+                    note: item.note || 'KhĂ´ng cĂ³ ghi chĂº'
+                };
+            }),
+            createdAt: new Date().toISOString()
+        };
+        
+        // Save locally immediately for fast UX
+        existingOrders.unshift(localOrder);
+        localStorage.setItem('order', JSON.stringify(existingOrders));
+        
+        // Clear cart immediately
+        api.clearCart(userId).catch(() => {});
+        
+        // Show success immediately
+        toast({ 
+            title: 'ThĂ nh cĂ´ng', 
+            message: 'Äáº·t hĂ ng thĂ nh cĂ´ng! Äang xá»­ lĂ½...', 
+            type: 'success', 
+            duration: 1500 
+        });
+        
+        // Redirect immediately for better UX
+        setTimeout(() => {
+            window.location.href = '/';
+        }, 800);
+        
+        // 2. ASYNC SYNC TO MICROSERVICES (in background)
+        setTimeout(async () => {
+            try {
+                console.log('đŸ”„ Background sync to Order Service...');
+                const serverOrderResult = await api.createOrder(orderData);
+                
+                if (serverOrderResult && (serverOrderResult.orderId || serverOrderResult.id)) {
+                    // Update local order with server ID
+                    const orders = JSON.parse(localStorage.getItem('order') || '[]');
+                    const orderIndex = orders.findIndex(o => o.id === tempOrderId);
+                    
+                    if (orderIndex !== -1) {
+                        orders[orderIndex].id = serverOrderResult.orderId || serverOrderResult.id;
+                        orders[orderIndex].trangthai = 0; // Server confirmed
+                        orders[orderIndex].synced = true;
+                        localStorage.setItem('order', JSON.stringify(orders));
+                        console.log('âœ… Order synced to server successfully!');
+                    }
+                } else {
+                    console.log('â ï¸ Server sync failed, order remains local only');
+                }
+            } catch (error) {
+                console.log('â ï¸ Background sync failed (order saved locally):', error.message);
+                // Order still exists locally, just not synced to server
+            }
+        }, 100); // Start sync immediately after redirect
+
+    } catch (error) {
+        console.error('âŒ Fast checkout error:', error);
+        toast({ title: 'Lá»—i', message: error.message || 'KhĂ´ng thá»ƒ Ä‘áº·t hĂ ng!', type: 'error', duration: 2000 });
+        
+        // Restore button
+        submitBtn.textContent = originalText;
+        submitBtn.disabled = false;
+    }
+}

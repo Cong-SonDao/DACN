@@ -1,0 +1,12 @@
+{
+  "name": "init-data",
+  "version": "1.0.0",
+  "description": "Initialize sample data for Vy Food",
+  "main": "init-data.js",
+  "scripts": {
+    "start": "node init-data.js"
+  },
+  "dependencies": {
+    "mongodb": "^6.0.0"
+  }
+}

@@ -1,0 +1,165 @@
+
+
+services:
+  # Databases
+  vyfood-mongodb:
+    image: mongo:7
+    container_name: vyfood-mongodb
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: password123
+    networks:
+      - vyfood-network
+
+  redis:
+    image: redis:alpine
+    container_name: vyfood-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - vyfood-network
+
+  # API Gateway
+  api-gateway:
+    build: ./api-gateway
+    container_name: vyfood-api-gateway
+    ports:
+      - "3000:3000"
+    environment:
+      - PORT=3000
+      - USER_SERVICE_URL=http://user-service:3001
+      - PRODUCT_SERVICE_URL=http://product-service:3002
+      - CART_SERVICE_URL=http://cart-service:3003
+      - ORDER_SERVICE_URL=http://order-service:3004
+      - PAYMENT_SERVICE_URL=http://payment-service:3005
+      - NOTIFICATION_SERVICE_URL=http://notification-service:3006
+      - JWT_SECRET=vyfood-jwt-secret-key
+    depends_on:
+      - user-service
+      - product-service
+      - cart-service
+      - order-service
+      - payment-service
+      - notification-service
+    networks:
+      - vyfood-network
+
+  # User Service
+  user-service:
+    build: ./user-service
+    container_name: vyfood-user-service
+    ports:
+      - "3001:3001"
+    environment:
+      - PORT=3001
+      - MONGODB_URI=mongodb://admin:password123@vyfood-mongodb:27017/vyfood_users?authSource=admin
+      - JWT_SECRET=vyfood-jwt-secret-key
+    depends_on:
+      - vyfood-mongodb
+    networks:
+      - vyfood-network
+
+  # Cart Service
+  cart-service:
+    build: ./cart-service
+    container_name: vyfood-cart-service
+    ports:
+      - "3003:3003"
+    environment:
+      - PORT=3003
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      - redis
+    networks:
+      - vyfood-network
+
+  # Order Service
+  order-service:
+    build: ./order-service
+    container_name: vyfood-order-service
+    ports:
+      - "3004:3004"
+    environment:
+      - PORT=3004
+      - MONGODB_URI=mongodb://admin:password123@vyfood-mongodb:27017/vyfood_orders?authSource=admin
+      - PRODUCT_SERVICE_URL=http://product-service:3002
+    depends_on:
+      - vyfood-mongodb
+      - product-service
+    networks:
+      - vyfood-network
+
+  # Payment Service
+  payment-service:
+    build: ./payment-service
+    container_name: vyfood-payment-service
+    ports:
+      - "3005:3005"
+    environment:
+      - PORT=3005
+      - MONGODB_URI=mongodb://admin:password123@vyfood-mongodb:27017/vyfood_payments?authSource=admin
+    depends_on:
+      - vyfood-mongodb
+      - order-service
+    networks:
+      - vyfood-network
+
+  # Notification Service
+  notification-service:
+    build: ./notification-service
+    container_name: vyfood-notification-service
+    ports:
+      - "3006:3006"
+    environment:
+      - PORT=3006
+      - MONGODB_URI=mongodb://admin:password123@vyfood-mongodb:27017/vyfood_notifications?authSource=admin
+      - SMTP_HOST=smtp.gmail.com
+      - SMTP_PORT=587
+      - SMTP_USER=your-email@gmail.com
+      - SMTP_PASS=your-app-password
+    depends_on:
+      - vyfood-mongodb
+    networks:
+      - vyfood-network
+
+  # Product Service
+  product-service:
+    build: ./product-service
+    container_name: vyfood-product-service
+    ports:
+      - "3002:3002"
+    environment:
+      - PORT=3002
+      - MONGODB_URI=mongodb://admin:password123@vyfood-mongodb:27017/vyfood_products?authSource=admin
+    depends_on:
+      - vyfood-mongodb
+    networks:
+      - vyfood-network
+
+  # Frontend
+  frontend:
+    image: nginx:alpine
+    container_name: vyfood-frontend
+    ports:
+      - "8080:80"
+    volumes:
+      - ../:/usr/share/nginx/html:ro
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - api-gateway
+    networks:
+      - vyfood-network
+
+networks:
+  vyfood-network:
+    driver: bridge
+
+volumes:
+  mongodb_data:
+  redis_data:

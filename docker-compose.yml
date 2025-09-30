@@ -1,0 +1,14 @@
+version: '3.8'
+
+services:
+  web:
+    build: .
+    ports:
+      - "8080:80"
+    restart: unless-stopped
+    container_name: webbanhang
+    volumes:
+      - .:/usr/share/nginx/html:ro
+    environment:
+      - NGINX_HOST=localhost
+      - NGINX_PORT=80

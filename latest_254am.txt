@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Cart Display - Vy Food</title>
+    
+    <!-- CSS -->
+    <link rel="stylesheet" href="./assets/css/main.css">
+    <link rel="stylesheet" href="./assets/css/toast-message.css">
+    
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="./assets/font/font-awesome-pro-v6-6.2.0/css/all.min.css">
+    
+    <style>
+        body {
+            padding: 20px;
+            font-family: Arial, sans-serif;
+        }
+        .test-section {
+            margin-bottom: 30px;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+        }
+        .cart-icon-demo {
+            display: inline-flex;
+            align-items: center;
+            padding: 10px;
+            background: #f0f0f0;
+            border-radius: 5px;
+            margin: 10px;
+            cursor: pointer;
+        }
+        .count-product-cart {
+            background: red;
+            color: white;
+            border-radius: 50%;
+            padding: 2px 6px;
+            font-size: 12px;
+            margin-left: 5px;
+            min-width: 16px;
+            text-align: center;
+        }
+        .debug-info {
+            background: #f9f9f9;
+            padding: 15px;
+            border-radius: 5px;
+            margin-top: 10px;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        button {
+            margin: 5px;
+            padding: 10px 15px;
+            border: none;
+            border-radius: 5px;
+            background: #007bff;
+            color: white;
+            cursor: pointer;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+    </style>
+</head>
+<body>
+    <h1>🧪 Test Cart Display System</h1>
+    
+    <div class="test-section">
+        <h3>Cart Icon Badge Test</h3>
+        <p>Kiểm tra badge hiển thị số lượng sản phẩm trong giỏ hàng:</p>
+        
+        <div class="cart-icon-demo" onclick="openCart()">
+            <i class="fa-light fa-basket-shopping"></i>
+            <span class="count-product-cart">0</span>
+            <span style="margin-left: 10px;">Giỏ hàng</span>
+        </div>
+        
+        <div>
+            <button onclick="testAddToLocalStorage()">Thêm 1 sản phẩm test vào localStorage</button>
+            <button onclick="testClearCart()">Xóa giỏ hàng localStorage</button>
+            <button onclick="updateCartBadge()">Cập nhật badge</button>
+            <button onclick="showCartInfo()">Hiển thị thông tin giỏ hàng</button>
+        </div>
+        
+        <div id="cart-debug-info" class="debug-info"></div>
+    </div>
+
+    <div class="test-section">
+        <h3>Cart Modal Test</h3>
+        <p>Test cart modal với dữ liệu localStorage:</p>
+        
+        <div>
+            <button onclick="openCart()">Mở giỏ hàng</button>
+            <button onclick="updateCartModal()">Cập nhật cart modal</button>
+        </div>
+    </div>
+
+    <div class="test-section">
+        <h3>Checkout Process Test</h3>
+        <p>Test quá trình checkout:</p>
+        
+        <div>
+            <button onclick="testCheckout()">Test Checkout Process</button>
+            <button onclick="proceedToCheckout()">Proceed to Checkout</button>
+        </div>
+    </div>
+
+    <!-- Cart Modal -->
+    <div class="modal cart">
+        <div class="modal-cart">
+            <div class="cart-container">
+                <div class="cart-header">
+                    <h3 class="cart-header-title"><i class="fa-regular fa-basket-shopping-simple"></i> Giỏ hàng</h3>
+                    <button class="cart-close" onclick="closeCart()"><i class="fa-sharp fa-solid fa-xmark"></i></button>
+                </div>
+                <div class="cart-body">
+                    <div class="gio-hang-trong">
+                        <i class="fa-thin fa-cart-xmark"></i>
+                        <p>Không có sản phẩm nào trong giỏ hàng của bạn</p>
+                    </div>
+                    <ul class="cart-list">
+                        <!-- Cart items will be populated here -->
+                    </ul>
+                </div>
+                <div class="cart-footer">
+                    <div class="cart-total-price">0₫</div>
+                    <button onclick="proceedToCheckout()" class="btn-checkout">Thanh toán</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Container -->
+    <div class="toast"></div>
+
+    <!-- JavaScript -->
+    <script src="./js/toast-message.js"></script>
+    <script src="./js/api-client.js"></script>
+    <script src="./js/main-microservices.js"></script>
+    <script src="./js/initialization-microservices.js"></script>
+    <script src="./js/checkout.js"></script>
+
+    <script>
+        // Test functions
+        function testAddToLocalStorage() {
+            console.log('🧪 Adding test product to localStorage cart...');
+            
+            // Create or get current user
+            let currentUser = JSON.parse(localStorage.getItem('currentuser') || '{}');
+            if (!currentUser.id) {
+                currentUser = {
+                    id: 'test-user-123',
+                    fullname: 'Test User',
+                    email: 'test@example.com',
+                    cart: []
+                };
+            }
+            
+            // Add test product
+            const testProduct = {
+                id: 'test-product-1',
+                title: 'Test Sản phẩm',
+                price: 25000,
+                soluong: 1,
+                note: 'Test note'
+            };
+            
+            // Check if product already exists
+            const existingIndex = currentUser.cart.findIndex(item => item.id === testProduct.id);
+            if (existingIndex >= 0) {
+                currentUser.cart[existingIndex].soluong += 1;
+            } else {
+                currentUser.cart.push(testProduct);
+            }
+            
+            localStorage.setItem('currentuser', JSON.stringify(currentUser));
+            
+            showToast({
+                type: 'success',
+                title: 'Thành công',
+                message: 'Đã thêm sản phẩm test vào giỏ hàng'
+            });
+            
+            // Update badge and show info
+            updateCartBadge();
+            showCartInfo();
+        }
+        
+        function testClearCart() {
+            console.log('🧪 Clearing localStorage cart...');
+            
+            let currentUser = JSON.parse(localStorage.getItem('currentuser') || '{}');
+            currentUser.cart = [];
+            localStorage.setItem('currentuser', JSON.stringify(currentUser));
+            
+            showToast({
+                type: 'info',
+                title: 'Đã xóa',
+                message: 'Giỏ hàng đã được xóa'
+            });
+            
+            updateCartBadge();
+            showCartInfo();
+        }
+        
+        function showCartInfo() {
+            console.log('🧪 Showing cart information...');
+            
+            const currentUser = JSON.parse(localStorage.getItem('currentuser') || '{}');
+            const cartItems = currentUser.cart || [];
+            const totalItems = cartItems.reduce((total, item) => total + parseInt(item.soluong || 0), 0);
+            
+            const debugDiv = document.getElementById('cart-debug-info');
+            debugDiv.innerHTML = `
+                <strong>Debug Info:</strong><br>
+                - User ID: ${currentUser.id || 'None'}<br>
+                - User Name: ${currentUser.fullname || 'None'}<br>
+                - Cart Items: ${cartItems.length}<br>
+                - Total Quantity: ${totalItems}<br>
+                - Cart Data: ${JSON.stringify(cartItems, null, 2)}
+            `;
+        }
+        
+        function testCheckout() {
+            console.log('🧪 Testing checkout process...');
+            
+            const currentUser = JSON.parse(localStorage.getItem('currentuser') || '{}');
+            if (!currentUser.cart || currentUser.cart.length === 0) {
+                showToast({
+                    type: 'warning',
+                    title: 'Giỏ hàng trống',
+                    message: 'Vui lòng thêm sản phẩm test trước'
+                });
+                return;
+            }
+            
+            showToast({
+                type: 'success',
+                title: 'Checkout Test',
+                message: 'Giỏ hàng có sản phẩm, có thể checkout!'
+            });
+        }
+
+        // Auto-update info on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('🧪 Test page loaded');
+            setTimeout(() => {
+                showCartInfo();
+            }, 500);
+        });
+    </script>
+</body>
+</html>
