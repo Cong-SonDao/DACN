@@ -55,3 +55,6 @@ function toast({
     main.appendChild(toast);
     }
 }
+
+// Create alias for backward compatibility
+window.showToast = toast;

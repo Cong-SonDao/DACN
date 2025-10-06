@@ -357,14 +357,13 @@ async function thanhtoanpage(option,product) {
     // Su kien khu nhan nut dat hang
     const checkoutBtn = document.querySelector(".complete-checkout-btn");
     if (checkoutBtn) {
-        checkoutBtn.onclick = () => {
-            console.log('🛒 Checkout button clicked, option:', option);
+        checkoutBtn.onclick = async () => {
             switch (option) {
                 case 1:
-                    xulyDathang();
+                    await xulyDathang();
                     break;
                 case 2:
-                    xulyDathang(product);
+                    await xulyDathang(product);
                     break;
             }
         }
@@ -378,17 +377,19 @@ async function showProductCart() {
     console.log('🛒 Loading cart for checkout...');
     
     try {
-        // Use global cart variable first (this is most up-to-date)
-        let cartItems = window.cart || [];
+    // Use global cart variable first (this is most up-to-date)
+    let cartItems = window.cart || [];
         
         console.log('📦 Cart from global variable:', cartItems);
         
         // If global cart is empty, try other sources
-        if (cartItems.length === 0) {
+            if (cartItems.length === 0) {
             if (window.vyFoodAPI && window.vyFoodAPI.isLoggedIn()) {
                 try {
                     const cartData = await window.vyFoodAPI.getCart();
-                    cartItems = cartData.cart || [];
+                        cartItems = cartData.cart || [];
+                        // Sync global cart so later calculations reflect actual items
+                        window.cart = Array.isArray(cartItems) ? cartItems.slice() : [];
                     console.log('📦 Cart from API:', cartItems);
                 } catch (apiError) {
                     console.warn('API failed, using localStorage cart:', apiError);
@@ -399,6 +400,8 @@ async function showProductCart() {
             if (cartItems.length === 0) {
                 const savedCart = localStorage.getItem('cart');
                 cartItems = savedCart ? JSON.parse(savedCart) : [];
+                // Sync global cart as well
+                window.cart = Array.isArray(cartItems) ? cartItems.slice() : [];
                 console.log('📦 Cart from localStorage:', cartItems);
             }
         }
@@ -442,8 +445,8 @@ async function showProductCart() {
         
         listOrder.innerHTML = listOrderHtml;
         
-        // Update total price
-        await updateCheckoutTotal();
+    // Update total price after global cart synced
+    await updateCheckoutTotal();
         
     } catch (error) {
         console.error('Error showing product cart:', error);
@@ -456,7 +459,7 @@ async function updateCheckoutTotal() {
     try {
         console.log('🧮 Updating checkout total...');
         
-        // Use global cart variable first (most up-to-date)
+    // Use global cart variable first (most up-to-date)
         let cartItems = window.cart || [];
         
         console.log('📦 Cart items for total calculation:', cartItems);
@@ -482,7 +485,7 @@ async function updateCheckoutTotal() {
         console.log('🛒 Cart items for checkout:', cartItems);
         console.log('📦 Cart items count:', cartItems.length);
         
-        let total = 0;
+    let total = 0;
         let itemCount = 0;
         
         // Calculate total from cart items
@@ -503,6 +506,14 @@ async function updateCheckoutTotal() {
             itemCount += item.soluong;
         }
         
+        // Fallback: if total 0 but there are items, attempt recalculation via calculateCurrentCartTotal
+        if (itemCount > 0 && total === 0) {
+            const fallback = calculateCurrentCartTotal();
+            if (fallback > 0) {
+                console.log('🛠️ Using fallback total calculation:', fallback);
+                total = fallback;
+            }
+        }
         console.log(`💵 Final total: ${vnd(total)}, items: ${itemCount}`);
         
         // Update DOM elements
@@ -510,8 +521,8 @@ async function updateCheckoutTotal() {
         const checkoutFinal = document.getElementById("checkout-cart-price-final");
         const countElement = document.querySelector('.count');
         
-        if (checkoutTotal) checkoutTotal.textContent = vnd(total);
-        if (checkoutFinal) checkoutFinal.textContent = vnd(total + PHIVANCHUYEN);
+    if (checkoutTotal) checkoutTotal.textContent = vnd(total);
+    if (checkoutFinal) checkoutFinal.textContent = vnd(total + PHIVANCHUYEN);
         if (countElement) countElement.textContent = `${itemCount} món`;
         
         // Enable/disable order button
@@ -596,38 +607,69 @@ async function completeCheckout() {
             items: itemsWithPrices
         };
 
-        showToast({ type: 'info', title: 'Đang xử lý', message: 'Đang tạo đơn hàng...' });
+        // Processing order silently - removed "Đang xử lý" notification
 
-        const token = api.getToken();
+        // Use vyFoodAPI for authentication (microservices)
+        if (!window.vyFoodAPI || !window.vyFoodAPI.isLoggedIn()) {
+            showToast({ type: 'error', title: 'Lỗi', message: 'Vui lòng đăng nhập để đặt hàng qua microservices' });
+            return;
+        }
+
+        const token = window.vyFoodAPI.getToken();
         const headers = { 'Content-Type': 'application/json' };
         if (token) {
             headers['Authorization'] = `Bearer ${token}`;
         }
 
-        const response = await fetch('http://localhost:3000/api/orders', {
+        // Call Order Service directly (bypassing API Gateway for reliability)
+        const response = await fetch('http://localhost:3004/api/orders', {
             method: 'POST',
             headers: headers,
             body: JSON.stringify(orderData)
         });
 
+        console.log('📡 Order Service Request:', {
+            url: 'http://localhost:3004/api/orders',
+            data: orderData,
+            headers: headers
+        });
+
         if (response.ok) {
             const order = await response.json();
+            console.log('✅ Order Service Response:', order);
             
             // Clear cart after successful order
-            await fetch(`http://localhost:3003/api/cart/${userId}`, {
-                method: 'DELETE'
-            });
+            try {
+                await fetch(`http://localhost:3003/api/cart/${userId}`, {
+                    method: 'DELETE'
+                });
+                console.log('✅ Cart cleared from Cart Service');
+            } catch (cartError) {
+                console.warn('⚠️ Failed to clear cart from Cart Service:', cartError);
+            }
 
-            showToast({ type: 'success', title: 'Thành công', message: 'Đặt hàng thành công!' });
+            showToast({ type: 'success', title: 'Thành công', message: `Đặt hàng thành công! Mã đơn: ${order.id}` });
             
-            // Redirect back to home page after 2 seconds
+            // Mark order as completed for auto refresh when checkout closes
+            window.orderCompleted = true;
+            
+            // Close checkout and return to homepage after 2 seconds
             setTimeout(() => {
-                window.location.href = '/';
+                if (typeof closecheckout === 'function') {
+                    closecheckout();
+                } else {
+                    window.location.href = '/';
+                }
             }, 2000);
             
         } else {
             const errorText = await response.text();
-            console.error('Order creation failed:', response.status, errorText);
+            console.error('❌ Order Service Error:', {
+                status: response.status,
+                statusText: response.statusText,
+                error: errorText,
+                requestData: orderData
+            });
             throw new Error(`Failed to create order: ${response.status} - ${errorText}`);
         }
 
@@ -686,7 +728,16 @@ function dathangngay() {
 // Close Page Checkout
 function closecheckout() {
     checkoutpage.classList.remove('active');
-    body.style.overflow = "auto"
+    body.style.overflow = "auto";
+    
+    // Auto refresh when returning to homepage after order success
+    if (window.orderCompleted) {
+        console.log('🔄 Auto refreshing after order completion');
+        window.orderCompleted = false; // Reset flag
+        setTimeout(() => {
+            window.location.reload();
+        }, 500); // Short delay to ensure checkout is fully closed
+    }
 }
 
 // Global delivery method selector - RADIO BUTTON STYLE
@@ -826,8 +877,8 @@ if (document.readyState === 'loading') {
 }
 
 // Thong tin cac don hang da mua - Xu ly khi nhan nut dat hang
-function xulyDathang(product) {
-    console.log('🛍️ Processing order...', { product });
+async function xulyDathang(product) {
+
     
     let diachinhan = "";
     let hinhthucgiao = "";
@@ -848,20 +899,22 @@ function xulyDathang(product) {
         currentUser = oldUser ? JSON.parse(oldUser) : { phone: 'guest' };
     }
     
-    console.log('👤 Current user:', currentUser);
+
     // Hinh thuc giao & Dia chi nhan hang
     if(giaotannoi.classList.contains("active")) {
         diachinhan = document.querySelector("#diachinhan").value;
         hinhthucgiao = giaotannoi.innerText;
     }
     if(tudenlay.classList.contains("active")){
-        let chinhanh1 = document.querySelector("#chinhanh-1");
-        let chinhanh2 = document.querySelector("#chinhanh-2");
-        if(chinhanh1.checked) {
-            diachinhan = "273 An Dương Vương, Phường 3, Quận 5";
+        // Lấy tên chi nhánh từ label của radio đang chọn để đảm bảo đồng nhất UI
+        const selectedBranch = document.querySelector('input[name="chinhanh"]:checked');
+        if (selectedBranch) {
+            const label = document.querySelector('label[for="' + selectedBranch.id + '"]');
+            diachinhan = (label ? label.textContent.trim() : selectedBranch.value || '').trim();
         }
-        if(chinhanh2.checked) {
-            diachinhan = "04 Tôn Đức Thắng, Phường Bến Nghé, Quận 1";
+        // Fallback an toàn nếu chưa chọn, mặc định Cổng A
+        if (!diachinhan) {
+            diachinhan = 'Trường Uit - Cổng A';
         }
         hinhthucgiao = tudenlay.innerText;
     }
@@ -875,30 +928,74 @@ function xulyDathang(product) {
         thoigiangiao = document.querySelector(".choise-time").value;
     }
 
-    let orderDetails = localStorage.getItem("orderDetails") ? JSON.parse(localStorage.getItem("orderDetails")) : [];
-    let order = localStorage.getItem("order") ? JSON.parse(localStorage.getItem("order")) : [];
-    let madon = createId(order);
+    // Pure microservices - generate unique order ID
+    let madon = 'ORDER_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
     let tongtien = 0;
+    let orderDetails = []; // Pure microservices - no localStorage needed
     
     if(product == undefined) {
-        // Get cart from global variable (microservices compatible)
-        let cartItems = window.cart || [];
-        console.log('🛒 Processing cart items:', cartItems);
+        // Hybrid approach: Try microservices first, fallback to localStorage
+        let cartItems = [];
         
+        // Try to get cart from microservices first
+        if (window.vyFoodAPI && window.vyFoodAPI.isLoggedIn()) {
+            try {
+                console.log('🛒 Loading cart from microservices...');
+                const cartData = await window.vyFoodAPI.getCart();
+                if (cartData && cartData.cart && cartData.cart.length > 0) {
+                    cartItems = cartData.cart;
+                    console.log('🛒 Loaded from microservices:', cartItems.length, 'items');
+                } else {
+                    throw new Error('Cart empty or invalid response');
+                }
+            } catch (error) {
+                console.warn('🛒 Microservices cart failed, using localStorage fallback:', error.message);
+                // Fallback to localStorage
+                const savedCart = localStorage.getItem('cart');
+                cartItems = savedCart ? JSON.parse(savedCart) : [];
+                console.log('🛒 Fallback to localStorage:', cartItems.length, 'items');
+            }
+        } else {
+            // Not logged in - use localStorage
+            const savedCart = localStorage.getItem('cart');
+            cartItems = savedCart ? JSON.parse(savedCart) : [];
+            console.log('🛒 Guest user - localStorage:', cartItems.length, 'items');
+        }
+        
+        // Check if cart is empty
+        if (cartItems.length === 0) {
+            if (typeof showToast === 'function') {
+                showToast({ title: 'Lỗi', message: 'Giỏ hàng trống! Vui lòng thêm sản phẩm trước khi đặt hàng.', type: 'error' });
+            }
+            return;
+        }
+
         cartItems.forEach(item => {
+            const product = window.products ? window.products.find(p => p.id == item.id || p._id == item.id) : null;
             let orderItem = {
                 ...item,
+                id: item.id,
                 madon: madon,
-                price: getpriceProduct(item.id)
+                note: item.note && String(item.note).trim() ? item.note : 'Không có ghi chú',
+                price: getpriceProduct(item.id),
+                title: product ? product.title : `Sản phẩm #${item.id}`,
+                img: product ? product.img : './assets/img/blank-image.png'
             };
             tongtien += orderItem.price * orderItem.soluong;
             orderDetails.push(orderItem);
         });
     } else {
-        product.madon = madon;
-        product.price = getpriceProduct(product.id);
-        tongtien += product.price * product.soluong;
-        orderDetails.push(product);
+        const productInfo = window.products ? window.products.find(p => p.id == product.id || p._id == product.id) : null;
+        const orderItem = {
+            ...product,
+            madon: madon,
+            note: product.note && String(product.note).trim() ? product.note : 'Không có ghi chú',
+            price: getpriceProduct(product.id),
+            title: productInfo ? productInfo.title : `Sản phẩm #${product.id}`,
+            img: productInfo ? productInfo.img : './assets/img/blank-image.png'
+        };
+        tongtien += orderItem.price * orderItem.soluong;
+        orderDetails.push(orderItem);
     }   
     
     let tennguoinhan = document.querySelector("#tennguoinhan").value;
@@ -928,43 +1025,186 @@ function xulyDathang(product) {
             tongtien:tongtien,
             trangthai: 0
         }
-    
-        order.unshift(donhang);
         
-        // Clear cart after successful order
-        if(product == null) {
-            // Clear microservices cart
-            window.cart = [];
-            localStorage.setItem('cart', JSON.stringify([]));
+        // Lưu ý: KHÔNG xóa giỏ trước khi tạo đơn thành công
+    
+        // Backup to localStorage for reliability
+        const existingOrders = JSON.parse(localStorage.getItem("order")) || [];
+        existingOrders.unshift(donhang);
+        localStorage.setItem("order", JSON.stringify(existingOrders));
+        
+        const existingOrderDetails = JSON.parse(localStorage.getItem("orderDetails")) || [];
+        const newOrderDetails = orderDetails.filter(item => item.madon === donhang.id);
+        existingOrderDetails.push(...newOrderDetails);
+        localStorage.setItem("orderDetails", JSON.stringify(existingOrderDetails));
+        
+        // Try to send to microservices if logged in
+        if (window.vyFoodAPI && window.vyFoodAPI.isLoggedIn()) {
+            try {
+                let orderItems = orderDetails.filter(item => item.madon === donhang.id);
+                // Safety: if somehow empty, rebuild from current cart sources
+                if (!orderItems.length) {
+                    try {
+                        let sourceCart = [];
+                        if (window.vyFoodAPI && window.vyFoodAPI.isLoggedIn()) {
+                            const cd = await window.vyFoodAPI.getCart();
+                            sourceCart = cd.cart || [];
+                        }
+                        if (!sourceCart.length) {
+                            const saved = localStorage.getItem('cart');
+                            sourceCart = saved ? JSON.parse(saved) : [];
+                        }
+                        orderItems = (sourceCart || []).map(ci => ({
+                            id: ci.id,
+                            soluong: ci.soluong,
+                            note: ci.note || 'Không có ghi chú',
+                            price: getpriceProduct(ci.id)
+                        }));
+                    } catch (_) {}
+                }
             
-            // Update UI
-            if (typeof updateCartUI === 'function') updateCartUI();
-            if (typeof updateCartModal === 'function') updateCartModal();
+            const microservicesOrder = {
+                khachhang: donhang.khachhang, // Số điện thoại khách hàng - QUAN TRỌNG!
+                hinhthucgiao: donhang.hinhthucgiao,
+                ngaygiaohang: new Date(donhang.ngaygiaohang),
+                thoigiangiao: donhang.thoigiangiao || '',
+                ghichu: donhang.ghichu || '',
+                tenguoinhan: donhang.tenguoinhan,
+                sdtnhan: donhang.sdtnhan,
+                diachinhan: donhang.diachinhan,
+                tongtien: donhang.tongtien,
+                items: orderItems.map(item => ({
+                    id: parseInt(item.id),
+                    soluong: parseInt(item.soluong),
+                    note: item.note && String(item.note).trim() ? item.note : 'Không có ghi chú'
+                }))
+            };
+
+            console.log('🚀 DEBUG: Sending order to API:', microservicesOrder);
+            console.log('🚀 DEBUG: Order items:', orderItems);
+            console.log('🚀 DEBUG: Customer phone (khachhang):', microservicesOrder.khachhang);
             
-            // Clear API cart if logged in
-            if (window.vyFoodAPI && window.vyFoodAPI.isLoggedIn()) {
-                window.vyFoodAPI.clearCart().catch(console.warn);
+            console.log('🔍 DEBUG: About to call createOrder API...');
+            console.log('🔍 DEBUG: vyFoodAPI exists:', !!window.vyFoodAPI);
+            console.log('🔍 DEBUG: User logged in:', window.vyFoodAPI && window.vyFoodAPI.isLoggedIn());
+            
+            // Force use exact values from database to avoid validation errors
+            console.log('🔧 DEBUG: Original hinhthucgiao:', microservicesOrder.hinhthucgiao);
+            
+            // Always use exact string from existing orders
+            if (microservicesOrder.hinhthucgiao && microservicesOrder.hinhthucgiao.toLowerCase().includes('giao')) {
+                microservicesOrder.hinhthucgiao = 'Giao tận nơi'; // Exact copy from database
+            } else {
+                microservicesOrder.hinhthucgiao = 'Tự đến lấy'; // Exact copy from database  
+            }
+            
+            console.log('🔧 DEBUG: Final hinhthucgiao:', microservicesOrder.hinhthucgiao);
+            
+            // Do not include tongtien in payload; Order Service will compute it.
+            try {
+                const sum = microservicesOrder.items.reduce((s, it) => s + (parseInt(it.soluong) * (parseInt(it.price) || getpriceProduct(it.id))), 0);
+                console.log('ℹ️ DEBUG: Computed client total (for UI only):', sum);
+            } catch (_) {}
+
+            const orderResult = await window.vyFoodAPI.createOrder(microservicesOrder);
+            
+            console.log('✅ Order API result:', orderResult);
+            console.log('✅ Order API result type:', typeof orderResult);
+            console.log('✅ Order API result keys:', orderResult ? Object.keys(orderResult) : 'N/A');
+            
+            if (!orderResult) {
+                throw new Error('API không trả về kết quả');
+            }
+            
+            if (!orderResult.order && !orderResult.message) {
+                throw new Error('API không trả về thông tin đơn hàng hợp lệ');
+            }
+            
+            const orderId = orderResult.order?.id || orderResult.order?._id || 'Unknown';
+            console.log('✅ Order created successfully in microservices with ID:', orderId);
+            
+            // DON'T sync user phone - keep original customer phone!
+            // This was causing the bug - changing user phone to receiver phone
+            console.log('✅ Keeping original customer phone:', donhang.khachhang, 'NOT changing to receiver phone:', donhang.sdtnhan);
+            
+                        // Mark microservices success to avoid showing local fallback in history
+                        try {
+                                const usedPhone = (window.vyFoodAPI && typeof window.vyFoodAPI.getCurrentUserPhone === 'function')
+                                    ? window.vyFoodAPI.getCurrentUserPhone()
+                                    : (donhang.khachhang || donhang.sdtnhan || '');
+                                localStorage.setItem('ms_lastOrderSuccess', 'true');
+                                if (usedPhone) localStorage.setItem('lastOrderUserPhone', String(usedPhone));
+                        } catch (_) {}
+
+                        // Microservices-first: remove temporary local ORDER_* copy to avoid duplicate/fallback
+            try {
+                const orders = JSON.parse(localStorage.getItem('order') || '[]');
+                const filteredOrders = orders.filter(o => o.id !== donhang.id);
+                localStorage.setItem('order', JSON.stringify(filteredOrders));
+                
+                const details = JSON.parse(localStorage.getItem('orderDetails') || '[]');
+                const filteredDetails = details.filter(d => d.madon !== donhang.id);
+                localStorage.setItem('orderDetails', JSON.stringify(filteredDetails));
+            } catch (_) {}
+
+            // Notify success with new DH order id (microservices)
+            if (typeof showToast === 'function') {
+                try { showToast({ type: 'success', title: 'Thành công', message: `Đặt hàng thành công! Mã đơn: ${orderId}` }); } catch (_) {}
+            }
+
+            // Sau khi tạo đơn thành công: xóa giỏ hàng
+            try {
+                // Xóa state giỏ cục bộ
+                window.cart = [];
+                localStorage.setItem('cart', JSON.stringify([]));
+                if (typeof updateCartUI === 'function') updateCartUI();
+                if (typeof updateCartModal === 'function') updateCartModal();
+                // Xóa giỏ trên Cart Service nếu đã đăng nhập
+                if (window.vyFoodAPI && window.vyFoodAPI.isLoggedIn()) {
+                    await window.vyFoodAPI.clearCart();
+                }
+            } catch (clearErr) {
+                console.warn('Clear cart after order error:', clearErr);
+            }
+
+            // Refresh order history UI if user is viewing it
+            try {
+                if (typeof loadOrderHistory === 'function') {
+                    loadOrderHistory();
+                }
+            } catch (_) {}
+            
+            } catch (microError) {
+                console.warn('🚀 Microservices order failed, using local backup only:', microError.message);
+                console.warn('🚀 Error details:', microError);
+                
+                if (typeof showToast === 'function') {
+                    try { showToast({ type: 'warning', title: 'Lưu cục bộ', message: 'Không kết nối được Order Service. Đơn hàng chỉ được lưu tạm thời trên máy.' }); } catch (_) {}
+                }
+
+                // Keep showing local orders in history as a fallback only
+                setTimeout(() => {
+                    if (typeof loadOrderHistory === 'function') {
+                        console.log('🔄 Refreshing order history (may not include local backup)');
+                        loadOrderHistory();
+                    }
+                }, 1000);
             }
         }
-    
-        localStorage.setItem("order",JSON.stringify(order));
-        localStorage.setItem("orderDetails",JSON.stringify(orderDetails));
         
-        console.log('✅ Order completed successfully!', donhang);
+
         
-        // Show success message
-        if (typeof showToast === 'function') {
-            showToast({ title: 'Thành công', message: 'Đặt hàng thành công !', type: 'success' });
-        } else if (typeof toast === 'function') {
-            toast({ title: 'Thành công', message: 'Đặt hàng thành công !', type: 'success', duration: 1000 });
-        }
+        // Note: generic success toast removed; success is shown above after microservices call
         
-        // Close checkout and redirect
+        // Mark order as completed for auto refresh when checkout closes
+        window.orderCompleted = true;
+        
+        // Close checkout and return to homepage after 2 seconds
         setTimeout(() => {
             if (typeof closecheckout === 'function') {
                 closecheckout();
             } else {
-                window.location.href = "/";
+                window.location.href = '/';
             }
         }, 2000);  
     }
@@ -1073,6 +1313,17 @@ async function completeCheckout() {
             throw new Error('Số điện thoại phải có đúng 10 chữ số!');
         }
 
+        // Determine address depending on delivery method
+        let pickupAddress = '';
+        if (deliveryMethod === 'tudenlay') {
+            const selectedBranch = document.querySelector('input[name="chinhanh"]:checked');
+            if (selectedBranch) {
+                const label = document.querySelector('label[for="' + selectedBranch.id + '"]');
+                pickupAddress = (label ? label.textContent.trim() : selectedBranch.value || '').trim();
+            }
+            if (!pickupAddress) pickupAddress = 'Trường Uit - Cổng A';
+        }
+
         // Prepare order data with PRICES included to avoid Product Service calls
         const orderData = {
             hinhthucgiao: deliveryMethod === 'giaotannoi' ? 'Giao tận nơi' : 'Tự đến lấy',
@@ -1081,7 +1332,7 @@ async function completeCheckout() {
             ghichu: note || '',
             tenguoinhan: customerName,
             sdtnhan: customerPhone, // Must be exactly 10 digits
-            diachinhan: deliveryMethod === 'giaotannoi' ? customerAddress : 'Lấy tại cửa hàng',
+            diachinhan: deliveryMethod === 'giaotannoi' ? customerAddress : pickupAddress,
             tongtien: totalAmount, // Include total amount
             items: cartData.cart.map(item => {
                 // Find product price from window.products to avoid API call
@@ -1104,87 +1355,44 @@ async function completeCheckout() {
             itemCount: orderData.items.length
         });
 
-        console.log('📋 Fast order data:', orderData);
-
-        // HYBRID APPROACH: Fast UX + Microservices Architecture
-        console.log('🚀 HYBRID: Fast local + async microservices sync');
+        // Tạo đơn hàng qua microservices
+        const serverOrderResult = await window.vyFoodAPI.createOrder(orderData);
         
-        // 1. IMMEDIATE LOCAL SAVE for fast UX
+        if (!serverOrderResult || (!serverOrderResult.order && !serverOrderResult.orderId && !serverOrderResult.id)) {
+            throw new Error('Không thể tạo đơn hàng! Vui lòng thử lại.');
+        }
+        
+        const createdOrder = serverOrderResult.order || serverOrderResult;
+        
+        // Sync user phone với phone từ đơn hàng để order history work
         const currentUser = JSON.parse(localStorage.getItem('currentuser') || '{}');
-        const existingOrders = JSON.parse(localStorage.getItem('order') || '[]');
-        const tempOrderId = `TEMP${Date.now()}`;
+        if (currentUser && customerPhone) {
+            currentUser.phone = customerPhone;
+            localStorage.setItem('currentuser', JSON.stringify(currentUser));
+            
+            // Sync với vyFoodUser nếu có
+            const vyUser = JSON.parse(localStorage.getItem('vyFoodUser') || '{}');
+            if (vyUser) {
+                vyUser.phone = customerPhone;
+                localStorage.setItem('vyFoodUser', JSON.stringify(vyUser));
+            }
+        }
         
-        const localOrder = {
-            id: tempOrderId,
-            khachhang: currentUser.id || userId,
-            hinhthucgiao: orderData.hinhthucgiao,
-            ngaygiaohang: new Date().toISOString(),
-            tenguoinhan: orderData.tenguoinhan,
-            sdtnhan: orderData.sdtnhan,
-            diachinhan: orderData.diachinhan,
-            ghichu: orderData.ghichu || 'Không có ghi chú',
-            tongtien: totalAmount,
-            trangthai: -1, // -1: Đang xử lý, 0: Chờ xác nhận, 1: Đã xác nhận
-            synced: false, // Track if synced to server
-            items: cartData.cart.map(item => {
-                const product = window.products ? window.products.find(p => p.id == item.id) : null;
-                return {
-                    id: item.id,
-                    name: product ? product.title : `Sản phẩm #${item.id}`,
-                    soluong: item.soluong,
-                    price: product ? product.price : 50000,
-                    note: item.note || 'Không có ghi chú'
-                };
-            }),
-            createdAt: new Date().toISOString()
-        };
-        
-        // Save locally immediately for fast UX
-        existingOrders.unshift(localOrder);
-        localStorage.setItem('order', JSON.stringify(existingOrders));
-        
-        // Clear cart immediately
+        // Clear cart after successful order
         api.clearCart(userId).catch(() => {});
         
-        // Show success immediately
+        // Show success message
         toast({ 
-            title: 'Thành công', 
-            message: 'Đặt hàng thành công! Đang xử lý...', 
+            title: 'Đặt hàng thành công!', 
+            message: 'Cảm ơn bạn đã đặt hàng! Đơn hàng đã được ghi nhận.', 
             type: 'success', 
-            duration: 1500 
+            duration: 2000 
         });
-        
-        // Redirect immediately for better UX
+
+        // Redirect immediately after successful order creation
         setTimeout(() => {
             window.location.href = '/';
         }, 800);
-        
-        // 2. ASYNC SYNC TO MICROSERVICES (in background)
-        setTimeout(async () => {
-            try {
-                console.log('🔄 Background sync to Order Service...');
-                const serverOrderResult = await api.createOrder(orderData);
-                
-                if (serverOrderResult && (serverOrderResult.orderId || serverOrderResult.id)) {
-                    // Update local order with server ID
-                    const orders = JSON.parse(localStorage.getItem('order') || '[]');
-                    const orderIndex = orders.findIndex(o => o.id === tempOrderId);
-                    
-                    if (orderIndex !== -1) {
-                        orders[orderIndex].id = serverOrderResult.orderId || serverOrderResult.id;
-                        orders[orderIndex].trangthai = 0; // Server confirmed
-                        orders[orderIndex].synced = true;
-                        localStorage.setItem('order', JSON.stringify(orders));
-                        console.log('✅ Order synced to server successfully!');
-                    }
-                } else {
-                    console.log('⚠️ Server sync failed, order remains local only');
-                }
-            } catch (error) {
-                console.log('⚠️ Background sync failed (order saved locally):', error.message);
-                // Order still exists locally, just not synced to server
-            }
-        }, 100); // Start sync immediately after redirect
 
     } catch (error) {
         console.error('❌ Fast checkout error:', error);

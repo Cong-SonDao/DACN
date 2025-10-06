@@ -132,15 +132,15 @@ async function handleLogin(event) {
         
         console.log('🔑 Calling login API with phone:', phone);
         
-        // Debug: Test if vyFoodAPI exists
-        if (!vyFoodAPI) {
-            throw new Error('vyFoodAPI not initialized');
+        // Debug: Test if sonFoodAPI exists
+        if (!sonFoodAPI) {
+            throw new Error('sonFoodAPI not initialized');
         }
         
-        console.log('🔑 vyFoodAPI ready, making request...');
+        console.log('🔑 sonFoodAPI ready, making request...');
         
         // Direct API call
-        const response = await vyFoodAPI.login(phone, password);
+        const response = await sonFoodAPI.login(phone, password);
         
         console.log('🔑 Full login response:', response);
         console.log('🔑 Response type:', typeof response);
@@ -149,29 +149,118 @@ async function handleLogin(event) {
         if (response && response.token) {
             console.log('✅ Login successful, token received');
             console.log('🔑 Token:', response.token.substring(0, 20) + '...');
+            console.log('👤 Full API response.user:', response.user);
             
-            // Update user profile without reload
-            if (typeof updateUserProfile === 'function') {
-                updateUserProfile();
+            // Close modal first
+            closeModal();
+            // Notify login success
+            if (typeof showToast === 'function') {
+                try {
+                    showToast({ type: 'success', title: 'Thành công', message: 'Đăng nhập thành công' });
+                } catch (_) {}
             }
             
-            // Close modal
-            closeModal();
-            
-            // Show success toast instead of alert
-            if (typeof showToast === 'function') {
-                showToast({ 
-                    type: 'success', 
-                    title: 'Đăng nhập thành công',
-                    message: 'Chào mừng bạn quay lại!' 
-                });
-            } else {
-                alert('Đăng nhập thành công!');
+            // Update current user and UI without reloading
+            try {
+                // Use the complete user data from API response
+                const userData = {
+                    ...response.user,
+                    id: response.user._id || response.user.id || phone,
+                    phone: response.user.phone || phone
+                };
+                console.log('👤 Processed userData:', userData);
+                
+                // Clear old data first then set new data (don't remove token)
+                localStorage.removeItem('currentUser');
+                localStorage.removeItem('currentuser');
+                localStorage.removeItem('sonFoodUser');
+                // Do NOT remove vyFoodUser here; it was just set by API client
+                
+                // Update both global variables and localStorage with fresh data
+                window.currentUser = userData;
+                localStorage.setItem('currentUser', JSON.stringify(userData));
+                localStorage.setItem('currentuser', JSON.stringify(userData)); // For compatibility
+                
+                // Ensure sonFoodUser also has the phone
+                const vyUser = {
+                    phone: phone,
+                    id: phone,
+                    fullname: userData.fullname || phone,
+                    ...userData
+                };
+                localStorage.setItem('sonFoodUser', JSON.stringify(vyUser));
+                // Keep vyFoodUser in sync so vyFoodAPI.getCurrentUserId() can resolve
+                localStorage.setItem('vyFoodUser', JSON.stringify(vyUser));
+                
+                // Force update UI immediately and with delay
+                if (typeof updateUIForLoggedInUser === 'function') {
+                    updateUIForLoggedInUser(); // Immediate call
+                }
+                
+                // Also update with delay to ensure data persistence
+                setTimeout(() => {
+                    if (typeof updateUIForLoggedInUser === 'function') {
+                        updateUIForLoggedInUser();
+                    }
+                }, 100);
+                
+                // Force update the welcome text directly with multiple attempts
+                setTimeout(() => {
+                    const authContainer = document.querySelector('.auth-container');
+                    if (authContainer && userData.fullname) {
+                        console.log('🔄 Force updating auth container with fullname:', userData.fullname);
+                        authContainer.innerHTML = `
+                            <span class="text-tk user-welcome">Xin chào, ${userData.fullname}! <i class="fa-sharp fa-solid fa-caret-down"></i></span>
+                        `;
+                    }
+                }, 200);
+                
+                // Also try again after 500ms to ensure it sticks
+                setTimeout(() => {
+                    const authContainer = document.querySelector('.auth-container');
+                    if (authContainer && userData.fullname) {
+                        console.log('🔄 Second force update with fullname:', userData.fullname);
+                        authContainer.innerHTML = `
+                            <span class="text-tk user-welcome">Xin chào, ${userData.fullname}! <i class="fa-sharp fa-solid fa-caret-down"></i></span>
+                        `;
+                    }
+                }, 500);
+                
+                // Reload cart from API now that user is logged in
+                if (typeof loadCartFromAPI === 'function') {
+                    await loadCartFromAPI();
+                }
+                
+                console.log('🎉 Login completed successfully!');
+                // Close modal - DO NOT auto refresh to preserve UI changes
+                closeModal();
+                
+                // Final verification that UI is updated correctly
+                setTimeout(() => {
+                    const finalCheck = document.querySelector('.auth-container');
+                    if (finalCheck) {
+                        console.log('🎯 [FINAL CHECK] Auth container content:', finalCheck.innerHTML);
+                        console.log('🎯 [FINAL CHECK] Should show user:', userData.fullname || userData.name || phone);
+                    }
+                }, 1500);
+                
+            } catch (uiError) {
+                console.error('Error updating UI after login:', uiError);
+                // Fallback to reload if UI update fails
+                closeModal();
+                setTimeout(() => {
+                    window.location.reload();
+                }, 500);
             }
             
         } else {
             console.error('❌ Login failed - no token in response');
-            alert('Đăng nhập thất bại - không nhận được token từ server');
+            // Show login failure toast
+            if (typeof showToast === 'function') {
+                try {
+                    showToast({ type: 'error', title: 'Đăng nhập thất bại', message: 'Sai tài khoản hoặc mật khẩu' });
+                } catch (_) {}
+            }
         }
     } catch (error) {
         console.error('❌ Login error details:', {
@@ -180,12 +269,18 @@ async function handleLogin(event) {
             phone: phone
         });
         
+        // Show login error toast
+        if (typeof showToast === 'function') {
+            try {
+                showToast({ type: 'error', title: 'Đăng nhập thất bại', message: 'Sai tài khoản hoặc mật khẩu' });
+            } catch (_) {}
+        }
         if (error.message.includes('timeout')) {
-            alert('Lỗi kết nối: Server không phản hồi. Vui lòng thử lại.');
+            console.error('⚠️ Login timeout: Server không phản hồi');
         } else if (error.message.includes('401') || error.message.includes('Invalid')) {
-            alert('Sai số điện thoại hoặc mật khẩu');
+            console.error('⚠️ Login failed: Sai số điện thoại hoặc mật khẩu');
         } else {
-            alert('Lỗi đăng nhập: ' + error.message);
+            console.error('⚠️ Login error:', error.message);
         }
     } finally {
         // Safely reset button state
@@ -248,20 +343,22 @@ async function handleRegister(event) {
         console.log('📝 Fast register attempt...');
         
         // Direct API call
-        const result = await vyFoodAPI.register(userData);
+        const result = await sonFoodAPI.register(userData);
         console.log('Register result:', result);
         
-        alert('Đăng ký thành công! Vui lòng đăng nhập');
+        // Removed register success alert - silent registration
+        console.log('✅ Registration successful, switching to login form');
         showLoginForm();
         event.target.reset();
         
     } catch (error) {
         console.error('Register error:', error);
         
+        // Removed register error alerts - errors logged to console only
         if (error.message.includes('already exists')) {
-            alert('Số điện thoại đã được đăng ký');
+            console.error('⚠️ Register failed: Số điện thoại đã được đăng ký');
         } else {
-            alert('Lỗi đăng ký: ' + error.message);
+            console.error('⚠️ Register error:', error.message);
         }
     } finally {
         // Safely reset button state
@@ -324,7 +421,7 @@ function initializeModalHandlers() {
     authTriggers.forEach(trigger => {
         trigger.addEventListener('click', function(e) {
             e.preventDefault();
-            if (!vyFoodAPI.isLoggedIn()) {
+            if (!sonFoodAPI.isLoggedIn()) {
                 openAuthModal();
             }
         });
@@ -335,7 +432,7 @@ function initializeModalHandlers() {
     if (cartTrigger) {
         cartTrigger.addEventListener('click', function(e) {
             e.preventDefault();
-            if (!vyFoodAPI.isLoggedIn()) {
+            if (!sonFoodAPI.isLoggedIn()) {
                 openAuthModal();
             } else {
                 openCartModal();
@@ -404,10 +501,10 @@ function closeCart() {
 }
 
 async function updateCartModal() {
-    if (!vyFoodAPI.isLoggedIn()) return;
+    if (!sonFoodAPI.isLoggedIn()) return;
 
     try {
-        const cartData = await vyFoodAPI.getCart();
+        const cartData = await sonFoodAPI.getCart();
         const cartItems = cartData.items || [];
         
         const cartContainer = document.querySelector('.cart-list');
@@ -525,25 +622,27 @@ function openCity(evt, city) {
     evt.currentTarget.className += " active";
 }
 
-// Show toast message helper
+// Show toast message helper (routes to global toast implementation)
 function showToast(options) {
-    if (typeof toast !== 'undefined' && toast.showSuccessToast) {
-        // Use the existing toast system
-        switch(options.type) {
-            case 'success':
-                toast.showSuccessToast(options.title, options.message);
-                break;
-            case 'error':
-                toast.showErrorToast(options.title, options.message);
-                break;
-            case 'warning':
-                toast.showWarningToast(options.title, options.message);
-                break;
-            default:
-                toast.showInfoToast(options.title, options.message);
+    try {
+        // Prefer the explicit global showToast assigned by toast-message.js
+        if (typeof window !== 'undefined' && typeof window.showToast === 'function' && window.showToast !== showToast) {
+            return window.showToast(options);
         }
-    } else {
-        // Fallback to alert
+        // Or call the global toast function directly if available
+        if (typeof window !== 'undefined' && typeof window.toast === 'function') {
+            return window.toast(options);
+        }
+    } catch (_) {}
+    // Last resort: alert
+    try {
         alert(`${options.title}: ${options.message}`);
+    } catch (_) {
+        console.log(`[TOAST:${options.type}] ${options.title}: ${options.message}`);
     }
 }
+
+// Make functions globally available
+window.initializeAuthForms = initializeAuthForms;
+window.showLoginForm = showLoginForm;
+window.showRegisterForm = showRegisterForm;

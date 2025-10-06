@@ -30,11 +30,23 @@ class VyFoodAPI {
   }
 
   getCurrentUserId() {
-    const userData = localStorage.getItem('vyFoodUser');
-    if (userData) {
-      const user = JSON.parse(userData);
-      return user.id || user._id || user.phone; // Use phone as fallback userId
+    // Try multiple storage keys for compatibility
+    const candidateKeys = ['vyFoodUser', 'currentUser', 'currentuser', 'sonFoodUser'];
+    for (const key of candidateKeys) {
+      const raw = localStorage.getItem(key);
+      if (!raw) continue;
+      try {
+        const user = JSON.parse(raw);
+        const userId = user?.id || user?._id || user?.phone;
+        if (userId) {
+          console.log(`🔑 Resolved userId from ${key}:`, userId);
+          return userId;
+        }
+      } catch (_) {
+        // ignore JSON parse errors, try next key
+      }
     }
+    console.log('🔑 No user data found in vyFoodUser/currentUser/currentuser/sonFoodUser');
     return null;
   }
 
@@ -49,6 +61,39 @@ class VyFoodAPI {
     } : {
       'Content-Type': 'application/json'
     };
+  }
+
+  // Resolve current user's phone from token or localStorage fallbacks
+  getCurrentUserPhone() {
+    const normalize = (v) => {
+      if (!v) return null;
+      const s = String(v).replace(/\D/g, '');
+      // accept 10 or 11 digits starting with 0; prefer 10
+      if (/^0\d{9}$/.test(s)) return s;
+      if (/^0\d{10}$/.test(s)) return s;
+      return null;
+    };
+    // Try token first
+    const token = this.getToken();
+    if (token) {
+      try {
+        const payload = JSON.parse(atob(token.split('.')[1]));
+        const p = normalize(payload?.phone);
+        if (p) return p;
+      } catch (_) {}
+    }
+    // Try common storage keys
+    const keys = ['vyFoodUser', 'currentUser', 'currentuser', 'sonFoodUser'];
+    for (const key of keys) {
+      try {
+        const raw = localStorage.getItem(key);
+        if (!raw) continue;
+        const user = JSON.parse(raw);
+        const p = normalize(user?.phone || user?.sdt);
+        if (p) return p;
+      } catch (_) {}
+    }
+    return null;
   }
 
   // Direct service request method (bypass API Gateway)
@@ -271,7 +316,8 @@ class VyFoodAPI {
 
   async getCurrentUser() {
     try {
-      return await this.requestDirect('user', '/users/profile');
+      const resp = await this.requestDirect('user', '/users/profile');
+      return resp && resp.user ? resp.user : resp;
     } catch (error) {
       // Fallback to localStorage data
       const userData = localStorage.getItem('vyFoodUser');
@@ -280,6 +326,10 @@ class VyFoodAPI {
       }
       throw error;
     }
+  }
+
+  async getProfile() {
+    return await this.getCurrentUser();
   }
 
   async updateProfile(userData) {
@@ -337,17 +387,13 @@ class VyFoodAPI {
   }
 
   // Cart Management
-  async getCart() {
-    return await this.requestDirect('cart', '/cart');
-  }
-
   // Cart Management - Updated to match cart service API
   async getCart() {
     const userId = this.getCurrentUserId();
     if (!userId) {
       throw new Error('User not logged in');
     }
-    return await this.requestDirect('cart', `/${userId}`);
+  return await this.requestDirect('cart', `/cart/${userId}`);
   }
 
   async addToCart(productId, quantity = 1) {
@@ -355,13 +401,15 @@ class VyFoodAPI {
     if (!userId) {
       throw new Error('User not logged in');
     }
-    return await this.requestDirect('cart', `/${userId}/items`, {
+    const payload = { 
+      id: parseInt(productId), 
+      soluong: quantity,
+      // Cart service rejects empty string, so ensure a non-empty default
+      note: 'Không có ghi chú'
+    };
+    return await this.requestDirect('cart', `/cart/${userId}/items`, {
       method: 'POST',
-      body: JSON.stringify({ 
-        id: parseInt(productId), 
-        soluong: quantity,
-        note: '' 
-      })
+      body: JSON.stringify(payload)
     });
   }
 
@@ -370,7 +418,7 @@ class VyFoodAPI {
     if (!userId) {
       throw new Error('User not logged in');
     }
-    return await this.requestDirect('cart', `/${userId}/items/${productId}`, {
+  return await this.requestDirect('cart', `/cart/${userId}/items/${productId}`, {
       method: 'PUT',
       body: JSON.stringify({ soluong: quantity })
     });
@@ -381,46 +429,94 @@ class VyFoodAPI {
     if (!userId) {
       throw new Error('User not logged in');
     }
-    return await this.requestDirect('cart', `/${userId}/items/${productId}`, {
+    return await this.requestDirect('cart', `/cart/${userId}/items/${productId}`, {
       method: 'DELETE'
     });
   }
 
   async clearCart() {
-    const userId = this.getCurrentUserId();
-    if (!userId) {
-      throw new Error('User not logged in');
+    try {
+      const userId = this.getCurrentUserId();
+      if (!userId) {
+        console.warn('No user ID for cart clear');
+        return { success: false };
+      }
+  return await this.requestDirect('cart', `/cart/${userId}`, {
+        method: 'DELETE'
+      });
+    } catch (error) {
+      console.warn('Cart clear failed:', error.message);
+      return { success: false, error: error.message };
     }
-    return await this.requestDirect('cart', `/${userId}`, {
-      method: 'DELETE'
-    });
   }
 
   // Order Management
   async createOrder(orderData) {
-    return await this.requestDirect('order', '/orders', {
-      method: 'POST',
-      body: JSON.stringify(orderData)
-    });
+    // Use khachhang (customer phone) instead of sdtnhan (receiver phone)
+    const userPhone = orderData.khachhang || orderData.sdtnhan || this.getCurrentUserPhone();
+    
+    console.log('🚀 [API-CLIENT] Creating order with data:', orderData);
+    console.log('🚀 [API-CLIENT] User phone:', userPhone);
+    
+    try {
+      if (!userPhone) {
+        throw new Error('Không xác định được số điện thoại người dùng (x-user-phone)');
+      }
+
+      // Do NOT send 'khachhang' in body (server derives from x-user-phone)
+      const body = { ...orderData };
+      if (Object.prototype.hasOwnProperty.call(body, 'khachhang')) {
+        delete body.khachhang;
+      }
+      // IMPORTANT: Do not send 'tongtien' either; server will calculate
+      if (Object.prototype.hasOwnProperty.call(body, 'tongtien')) {
+        console.log('🧹 [API-CLIENT] Stripping tongtien from payload; server will compute it');
+        delete body.tongtien;
+      }
+
+      const result = await this.requestDirect('order', '/orders', {
+        method: 'POST',
+        body: JSON.stringify(body),
+        headers: {
+          ...this.getAuthHeaders(),
+          'x-user-phone': userPhone
+        }
+      });
+      
+      console.log('✅ [API-CLIENT] Order created successfully:', result);
+      return result;
+    } catch (error) {
+      console.error('❌ [API-CLIENT] Order creation failed:', error);
+      throw error;
+    }
   }
 
   async getOrders(page = 1, limit = 10) {
-    return await this.requestDirect('order', `/orders?page=${page}&limit=${limit}`);
+  return await this.requestDirect('order', `/orders?page=${page}&limit=${limit}`);
   }
 
   async getOrder(orderId) {
-    return await this.requestDirect('order', `/orders/${orderId}`);
+  return await this.requestDirect('order', `/orders/${orderId}`);
+  }
+
+  async getUserOrders(userPhone) {
+  return await this.requestDirect('order', `/orders/user/${encodeURIComponent(userPhone)}`, {
+      headers: {
+        ...this.getAuthHeaders(),
+        'x-user-phone': userPhone
+      }
+    });
   }
 
   async updateOrderStatus(orderId, status) {
-    return await this.requestDirect('order', `/orders/${orderId}/status`, {
+  return await this.requestDirect('order', `/orders/${orderId}/status`, {
       method: 'PUT',
       body: JSON.stringify({ status })
     });
   }
 
   async cancelOrder(orderId, reason) {
-    return await this.requestDirect('order', `/orders/${orderId}/cancel`, {
+  return await this.requestDirect('order', `/orders/${orderId}/cancel`, {
       method: 'PUT',
       body: JSON.stringify({ reason })
     });

@@ -83,10 +83,20 @@ router.get('/', async (req, res) => {
   }
 });
 
-// Get product by ID
+// Get product by ID (support both custom id field and ObjectId)
 router.get('/:id', async (req, res) => {
   try {
-    const product = await Product.findById(req.params.id);
+    let product;
+    
+    // Try finding by custom id field first (for integer IDs)
+    if (/^\d+$/.test(req.params.id)) {
+      product = await Product.findOne({ id: parseInt(req.params.id) });
+    }
+    
+    // If not found, try finding by MongoDB ObjectId
+    if (!product && /^[0-9a-fA-F]{24}$/.test(req.params.id)) {
+      product = await Product.findById(req.params.id);
+    }
     
     if (!product) {
       return res.status(404).json({ error: 'Product not found' });

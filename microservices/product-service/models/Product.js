@@ -1,6 +1,11 @@
 const mongoose = require('mongoose');
 
 const productSchema = new mongoose.Schema({
+  id: {
+    type: Number,
+    required: true,
+    unique: true
+  },
   title: {
     type: String,
     required: true,
@@ -53,6 +58,7 @@ const productSchema = new mongoose.Schema({
 });
 
 // Index for search
+productSchema.index({ id: 1 }); // Index for custom ID field
 productSchema.index({ title: 'text', desc: 'text' });
 productSchema.index({ category: 1 });
 productSchema.index({ status: 1 });

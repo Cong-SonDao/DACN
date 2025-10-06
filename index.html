@@ -6,12 +6,12 @@
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Son Food</title>
-    <link href='./assets/son-food.png' rel='icon' type='image/x-icon' />
+    <!-- Favicon: use transparent background icon and cache-bust -->
+    <link href="/assets/img/son-food_icon.png?v=2" rel="icon" type="image/png" />
     <link rel="stylesheet" href="./assets/css/main.css">
     <link rel="stylesheet" href="./assets/css/home-responsive.css">
     <link rel="stylesheet" href="./assets/css/toast-message.css">
     <link rel="stylesheet" href="./assets/font/font-awesome-pro-v6-6.2.0/css/all.min.css"/>
-    
 </head>
 <body>
     <header>
@@ -134,7 +134,12 @@
                 <img src="./assets/img/banner-2.png" alt="">
                 <img src="./assets/img/banner-3.png" alt="">
                 <img src="./assets/img/banner-4.png" alt="">
-                <img src="./assets/img/banner-5.png" alt="">
+                <img src="./assets/img/banner-5.png" alt=""> 
+                <!-- Slider controls -->
+                <button class="slider-btn prev" aria-label="Trước"><i class="fa-regular fa-angle-left"></i></button>
+                <button class="slider-btn next" aria-label="Sau"><i class="fa-regular fa-angle-right"></i></button>
+                <button class="slider-btn toggle" aria-label="Dừng"><i class="fa-regular fa-pause"></i><span> Dừng</span></button>
+                <div class="slider-dots" aria-label="Chỉ báo slide"></div>
             </div>
             <div class="home-service" id="home-service">
                 <div class="home-service-item">
@@ -263,36 +268,6 @@
             </div>
         </div>
     </main>
-    <style>
-    .home-slider img {
-        display: none;
-        width: 100%; /* Điều chỉnh theo nhu cầu */
-    }
-    .home-slider img.active {
-        display: block;
-    }
-</style>
-
-<script>
-    const slides = document.querySelectorAll('.home-slider img');
-    let currentSlide = 0;
-
-    function showSlide(n) {
-        slides.forEach(slide => slide.classList.remove('active'));
-        slides[n].classList.add('active');
-    }
-
-    function nextSlide() {
-        currentSlide = (currentSlide + 1) % slides.length;
-        showSlide(currentSlide);
-    }
-
-    // Chuyển slide mỗi 5 giây
-    setInterval(nextSlide, 5000);
-
-    // Hiển thị slide đầu tiên khi tải trang
-    showSlide(currentSlide);
-</script>
     <div class="modal product-detail">
         <button class="modal-close close-popup"><i class="fa-thin fa-xmark"></i></button>
         <div class="modal-container mdl-cnt" id="product-detail-content">
@@ -389,7 +364,8 @@
                     <p class="text-price">0đ</p>
                 </div>
                 <div class="cart-footer-payment">
-                    <button class="thanh-toan disabled" onclick="checkout()">Thanh toán</button>
+                    <button class="them-mon"><i class="fa-regular fa-plus"></i> Thêm món</button>
+                    <button class="thanh-toan disabled">Thanh toán</button>
                 </div>
             </div>
         </div>
@@ -534,7 +510,7 @@
                                     <i class="fa-regular fa-location-dot"></i>
                                 </div>
                                 <div class="contact-content">
-                                    <span>Trường đại học công nghệ thông tin thành phố Hồ chí Minh</span>
+                                    <span>Trường đại học công nghệ thông tin thành phố Hồ Chí Minh</span>
                                 </div>
                             </div>
                             <div class="contact-item">
@@ -651,11 +627,11 @@
                             <p class="checkout-content-label">Lấy hàng tại chi nhánh</p>
                             <div class="delivery-time">
                                 <input type="radio" name="chinhanh" id="chinhanh-1" class="radio">
-                                <label for="chinhanh-1">Trường đại học công nghệ thông tin thành phố Hồ chí Minh</label>
+                                <label for="chinhanh-1">Trường Uit - Cổng A</label>
                             </div>
                             <div class="delivery-time">
                                 <input type="radio" name="chinhanh" id="chinhanh-2" class="radio">
-                                <label for="chinhanh-2">04 Tôn Đức Thắng, Phường Bến Nghé, Quận 1</label>
+                                <label for="chinhanh-2">Trường Uit - Cổng B</label>
                             </div>
                         </div>
                         <div class="content-group">
@@ -716,10 +692,11 @@
     </div>
     <div id="toast"></div>
     <!-- Microservices API Client -->
-    <script src="./js/api-client.js?v=2"></script>
-    <script src="./js/initialization-microservices.js?v=2"></script>
-    <script src="./js/main-microservices.js?v=2"></script>
-    <script src="./js/checkout.js?v=2"></script>
-    <script src="./js/toast-message.js?v=2"></script>
+    <script src="./js/api-client.js"></script>
+    <script src="./js/initialization-microservices.js"></script>
+    <script src="./js/main-microservices.js"></script>
+    <script src="./js/checkout.js"></script>
+    <script src="./js/toast-message.js"></script>
+    <script src="./js/slider-controls.js"></script>
 </body>
 </html>

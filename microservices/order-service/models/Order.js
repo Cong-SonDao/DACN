@@ -12,8 +12,7 @@ const orderSchema = new mongoose.Schema({
   },
   hinhthucgiao: {
     type: String,
-    required: true,
-    enum: ['Giao tận nơi', 'Tự đến lấy']
+    required: true
   },
   ngaygiaohang: {
     type: Date,

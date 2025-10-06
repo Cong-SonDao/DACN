@@ -38,7 +38,8 @@
     position: fixed;
     top: 32px;
     right: 32px;
-    z-index: 100;
+    /* Ensure toast stays above all overlays and headers */
+    z-index: 10000;
 }
 
 .toast+.toast {
