@@ -58,3 +58,6 @@ function toast({
 
 // Create alias for backward compatibility
 window.showToast = toast;
+
+// Make toast function globally accessible
+window.toast = toast;

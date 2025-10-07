@@ -298,8 +298,8 @@ async function handleRegister(event) {
     const userData = {
         fullname: formData.get('fullname'), // Match HTML field name
         phone: formData.get('phone'),
-        address: formData.get('address') || '',
         password: formData.get('password')
+        // Don't send email and address if not provided - backend will handle defaults
     };
 
     const confirmPassword = formData.get('password_confirmation'); // Match HTML field name
@@ -309,6 +309,13 @@ async function handleRegister(event) {
     // Validation
     if (!userData.fullname || !userData.phone || !userData.password) {
         alert('Vui lòng nhập đầy đủ thông tin');
+        return;
+    }
+
+    // Phone validation - must be exactly 10 digits
+    const phoneRegex = /^[0-9]{10}$/;
+    if (!phoneRegex.test(userData.phone)) {
+        alert('Số điện thoại phải có đúng 10 chữ số');
         return;
     }
 
@@ -346,19 +353,75 @@ async function handleRegister(event) {
         const result = await sonFoodAPI.register(userData);
         console.log('Register result:', result);
         
-        // Removed register success alert - silent registration
+        // Show success toast message
         console.log('✅ Registration successful, switching to login form');
+        
+        // Use toast function if available, otherwise fallback to alert
+        console.log('🎉 About to show success toast. Toast function available:', typeof toast === 'function');
+        if (typeof toast === 'function') {
+            toast({
+                type: 'success',
+                title: 'Đăng ký thành công',
+                message: 'Tài khoản đã được tạo thành công. Vui lòng đăng nhập!',
+                duration: 3000
+            });
+        } else if (typeof showToast === 'function') {
+            showToast({ 
+                type: 'success', 
+                title: 'Đăng ký thành công', 
+                message: 'Tài khoản đã được tạo thành công. Vui lòng đăng nhập!' 
+            });
+        } else {
+            alert('Đăng ký thành công! Vui lòng đăng nhập.');
+        }
+        
         showLoginForm();
         event.target.reset();
         
     } catch (error) {
         console.error('Register error:', error);
         
-        // Removed register error alerts - errors logged to console only
-        if (error.message.includes('already exists')) {
+        // Show appropriate error message
+        if (error.message.includes('already exists') || error.message.includes('đã tồn tại')) {
             console.error('⚠️ Register failed: Số điện thoại đã được đăng ký');
+            
+            // Use toast function if available, otherwise fallback to alert
+            if (typeof toast === 'function') {
+                toast({
+                    type: 'error',
+                    title: 'Đăng ký thất bại',
+                    message: 'Số điện thoại đã tồn tại. Vui lòng sử dụng số điện thoại khác!',
+                    duration: 4000
+                });
+            } else if (typeof showToast === 'function') {
+                showToast({ 
+                    type: 'error', 
+                    title: 'Đăng ký thất bại', 
+                    message: 'Số điện thoại đã tồn tại. Vui lòng sử dụng số điện thoại khác!' 
+                });
+            } else {
+                alert('Số điện thoại đã tồn tại. Vui lòng sử dụng số điện thoại khác!');
+            }
         } else {
             console.error('⚠️ Register error:', error.message);
+            
+            // Use toast function if available, otherwise fallback to alert
+            if (typeof toast === 'function') {
+                toast({
+                    type: 'error',
+                    title: 'Đăng ký thất bại',
+                    message: error.message || 'Có lỗi xảy ra trong quá trình đăng ký. Vui lòng thử lại!',
+                    duration: 4000
+                });
+            } else if (typeof showToast === 'function') {
+                showToast({ 
+                    type: 'error', 
+                    title: 'Đăng ký thất bại', 
+                    message: error.message || 'Có lỗi xảy ra trong quá trình đăng ký. Vui lòng thử lại!' 
+                });
+            } else {
+                alert(error.message || 'Có lỗi xảy ra trong quá trình đăng ký. Vui lòng thử lại!');
+            }
         }
     } finally {
         // Safely reset button state

@@ -68,9 +68,8 @@ class VyFoodAPI {
     const normalize = (v) => {
       if (!v) return null;
       const s = String(v).replace(/\D/g, '');
-      // accept 10 or 11 digits starting with 0; prefer 10
-      if (/^0\d{9}$/.test(s)) return s;
-      if (/^0\d{10}$/.test(s)) return s;
+      // accept exactly 10 digits (any format)
+      if (/^[0-9]{10}$/.test(s)) return s;
       return null;
     };
     // Try token first

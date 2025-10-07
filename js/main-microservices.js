@@ -1286,8 +1286,7 @@ async function loadOrderHistory() {
             const normalizePhone = (v) => {
                 if (!v) return null;
                 const s = String(v).replace(/\D/g, '');
-                if (/^0\d{9}$/.test(s)) return s; // 10 digits starting with 0
-                if (/^0\d{10}$/.test(s)) return s; // 11 digits starting with 0
+                if (/^[0-9]{10}$/.test(s)) return s; // exactly 10 digits
                 return null;
             };
 

@@ -33,7 +33,7 @@ const orderSchema = new mongoose.Schema({
   sdtnhan: {
     type: String,
     required: true,
-    match: /^[0-9]{10}$/
+    match: /^[0-9]{10,11}$/
   },
   diachinhan: {
     type: String,
